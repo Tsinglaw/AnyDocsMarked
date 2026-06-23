@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "makeitdown"
+version = "0.1.0"
+description = "Batch convert documents to high-fidelity Markdown for LLM knowledge bases"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "markitdown[all]",
+    "pymupdf",
+    "requests",
+]
+
+[project.optional-dependencies]
+local = ["paddleocr[doc-parser]", "paddlepaddle"]
+# Legacy .doc/.wps conversion via an already-installed Word/WPS on Windows.
+# Installs nothing but the COM bridge; it drives an app the user already has.
+com = ["pywin32 ; platform_system=='Windows'"]
+dev = ["pytest"]
+
+[project.scripts]
+makeitdown = "makeitdown.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

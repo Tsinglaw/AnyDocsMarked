@@ -1,0 +1,20 @@
+# 真实案件数据绝不入库（隐私/保密）
+*.zip
+原始资料/
+_md/
+案件/
+*案件*/
+.rag/
+_smoke/
+dist/
+
+# lint 临时输出与 python 缓存
+.lint_out.txt
+.worklist.json
+.judge*.txt
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 一次性脚本
+.upgrade_obsidian.py

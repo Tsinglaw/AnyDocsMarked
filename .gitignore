@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtualenv / uv
+.venv/
+venv/
+uv.lock
+
+# 构建产物 / 向量库 / 案件数据（隐私）
+dist/
+*.lance/
+.rag/
+原始资料/
+_md/
+案件/
+*案件*/
+_smoke/
+_interop/
+
+# OS
+.DS_Store
+Thumbs.db

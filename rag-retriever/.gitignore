@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+venv/
+
+# Vector store data / lancedb
+*.lance/
+.rag/
+.rag-retriever/
+
+# OS
+.DS_Store
+Thumbs.db
