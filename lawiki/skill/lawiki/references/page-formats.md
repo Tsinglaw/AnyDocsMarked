@@ -25,7 +25,7 @@ ingest 写页时照此格式。来源锚点、三类标注见 SKILL.md 主干；
 ## 续作方式
 1. 加载 lawiki skill（Claude Code/Copilot 按其 SKILL.md 自动识别；Codex 等把 skill 内容作系统指令）。
 2. 新增资料：放进 `原始资料/` → 转换出 `_md/` → 索引 `.rag/` → ingest 进 `wiki/` → 跑 lint 校验。
-3. 提问：用 wiki 已综合结论 + RAG 原文双路交叉验证作答（见 skill 的 qa.md）。
+3. 提问（闭世界问答）：**本案事实的唯一来源 = 本目录的 `原始资料/_md/wiki/.rag`**；**答前必先检索（wiki + RAG + outline + grep `_md`），严禁凭记忆/通用法律知识直接回答本案问题**；查不到就明说「未在本案材料中找到」，绝不脑补冒充本案事实；通用分析须标 `> [!note] 分析（非本案证据）`。多路取证 + 四情形分流详见 skill 的 qa.md。
 
 ## 铁律（不可违反，全文见 skill）
 - 每句事实挂逐字来源锚点 `〔来源: _md/…：「逐字原文」〕`；挂不上锚点的不许当事实写。
@@ -36,7 +36,7 @@ ingest 写页时照此格式。来源锚点、三类标注见 SKILL.md 主干；
 `python <SKILL_DIR>/lint/lint.py check <本目录>` → 修到 0 违规。
 ```
 
-> Claude Code 若希望打开案件目录时**自动**载入本说明，可把 `AGENTS.md` 另存一份为 `CLAUDE.md`（内容相同）。保持单一来源时以 `AGENTS.md` 为准。
+> **建议同时在案件根写一份内容相同的 `CLAUDE.md`**：Claude Code 打开目录时自动载入 `CLAUDE.md`、其它 agent 多读 `AGENTS.md`——两份齐备，**无论哪种 agent、即便 skill 未触发**，打开案件文件夹都会先看到"只用本案数据、答前必检索"的约束。两者内容一致，以 `AGENTS.md` 为准。
 
 ### `wiki/` 初始文件
 
