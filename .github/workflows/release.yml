@@ -1,0 +1,39 @@
+name: release
+
+# Publish the downloadable bundles to a GitHub Release when a version tag is
+# pushed, e.g.:  git tag v1.0.3 && git push origin v1.0.3
+#
+# Must live at the repo root: a workflow under makeitdown/.github/ (where this
+# logic used to be, pre-monorepo) is invisible to GitHub Actions and never runs.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # build_bundle.py records each component's commit hash
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Primary, README-documented artifact: lawiki-bundle-v<version>.zip
+      # (skill + vendored makeitdown/rag-retriever source + install.py).
+      - name: Build lawiki bundle
+        run: python lawiki/scripts/build_bundle.py --version "${GITHUB_REF_NAME#v}"
+      # Secondary: the standalone makeitdown agent bundle, for users who only
+      # want the converter without the lawiki workflow.
+      - name: Build standalone makeitdown agent bundle
+        run: python makeitdown/scripts/build_agent_bundle.py
+      - name: Publish release with both bundles attached
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            lawiki/dist/lawiki-bundle-*.zip
+            makeitdown/dist/makeitdown-agent.zip
+          generate_release_notes: true
