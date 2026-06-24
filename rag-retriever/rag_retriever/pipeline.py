@@ -106,7 +106,8 @@ class Retriever:
             "table_chunks": sum(truth.values()),
         }
         if not in_sync and fix:
-            result["repaired"] = self.store.reconcile()
+            # Reuse the scan we already did rather than re-scanning the table.
+            result["repaired"] = self.store.reconcile(truth=truth)
         return result
 
     def stats(self) -> dict:

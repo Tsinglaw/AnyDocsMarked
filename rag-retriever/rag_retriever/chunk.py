@@ -9,20 +9,17 @@ straddles a boundary is still retrievable. Token counts use tiktoken o200k_base
 from __future__ import annotations
 
 import re
+from functools import cache
 
 import tiktoken
 
-# Lazily built: `get_encoding` may fetch the BPE file on first use, so doing it
-# at import would force a network round-trip just to import this module (and
-# break the "local-first / offline" promise). Build it on first count instead.
-_enc = None
 
-
+@cache
 def _encoder():
-    global _enc
-    if _enc is None:
-        _enc = tiktoken.get_encoding("o200k_base")
-    return _enc
+    # Lazily built: `get_encoding` may fetch the BPE file on first use, so doing
+    # it at import would force a network round-trip just to import this module
+    # (and break the "local-first / offline" promise). Build it on first count.
+    return tiktoken.get_encoding("o200k_base")
 
 
 def count_tokens(text: str) -> int:

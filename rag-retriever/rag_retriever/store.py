@@ -7,6 +7,7 @@ Re-indexing a file deletes its old chunks first so updates stay clean.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import lancedb
@@ -59,13 +60,6 @@ class VectorStore:
         tbl.delete("id = 'seed'")
         return tbl
 
-    def _existing_dim(self) -> int | None:
-        """Vector dimension of the existing table, or None if no table yet."""
-        tbl = self._table()
-        if tbl is None:
-            return None
-        return getattr(tbl.schema.field("vector").type, "list_size", None)
-
     def delete_source(self, source: str) -> None:
         tbl = self._table()
         if tbl is not None:
@@ -80,16 +74,21 @@ class VectorStore:
         if not chunks:
             return 0
         new_dim = len(vectors[0])
-        existing = self._existing_dim()
-        if existing is not None and existing != new_dim:
-            raise ValueError(
-                f"embedding dimension changed ({existing} -> {new_dim}): the index "
-                f"was built with a different model. Vectors of mixed dimension can't "
-                f"share a table — rebuild the index from scratch (delete the data dir "
-                f"/ .rag and re-run index) using a single embedding model."
-            )
+        # Open the table once: reuse it if it exists (and guard its dimension),
+        # else create it at the new dimension.
+        tbl = self._table()
+        if tbl is not None:
+            existing = tbl.schema.field("vector").type.list_size
+            if existing != new_dim:
+                raise ValueError(
+                    f"embedding dimension changed ({existing} -> {new_dim}): the index "
+                    f"was built with a different model. Vectors of mixed dimension can't "
+                    f"share a table — rebuild the index from scratch (delete the data dir "
+                    f"/ .rag and re-run index) using a single embedding model."
+                )
+        else:
+            tbl = self._table(dim=new_dim)
         meta_json = json.dumps(meta or {}, ensure_ascii=False)
-        tbl = self._table(dim=new_dim)
         rows = [
             {"id": f"{source}::{i}", "source": source, "ord": i,
              "text": chunk, "meta": meta_json, "vector": vec}
@@ -150,19 +149,16 @@ class VectorStore:
         tbl = self._table()
         if tbl is None:
             return {}
-        sources = tbl.to_arrow().column("source").to_pylist()
-        truth: dict[str, int] = {}
-        for s in sources:
-            truth[s] = truth.get(s, 0) + 1
-        return truth
+        return dict(Counter(tbl.to_arrow().column("source").to_pylist()))
 
-    def reconcile(self) -> dict:
+    def reconcile(self, truth: dict[str, int] | None = None) -> dict:
         """Rebuild the sidecar manifest from the table's real contents.
 
         Use after a crash mid-write or a manually deleted manifest desynced the
-        cached counts from the table. Returns {before, after} for reporting.
+        cached counts from the table. Pass `truth` to reuse an already-scanned
+        table_manifest() and avoid a second full scan. Returns {before, after}.
         """
         before = dict(self._manifest)
-        self._manifest = self.table_manifest()
+        self._manifest = self.table_manifest() if truth is None else dict(truth)
         self._save_manifest()
         return {"before": before, "after": dict(self._manifest)}

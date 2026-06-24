@@ -50,20 +50,15 @@ def _batched(texts: list[str], size: int):
         yield texts[i:i + step]
 
 
-class OllamaEmbedder:
-    """Local Ollama server (http). Lighter Python deps, but a daemon must run."""
+class _HttpEmbedder:
+    """Shared batching + interface for HTTP-backed embedders. Subclasses set
+    ``self._batch_size`` and implement ``_embed_batch`` (one request); the loop,
+    the document/query split, and the order contract live here once."""
 
-    def __init__(self, model_name: str, base_url: str, batch_size: int = 64):
-        self._model = model_name
-        self._url = base_url.rstrip("/") + "/api/embed"
-        self._batch_size = batch_size
+    _batch_size: int
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        resp = httpx.post(
-            self._url, json={"model": self._model, "input": texts}, timeout=120
-        )
-        resp.raise_for_status()
-        return resp.json()["embeddings"]
+        raise NotImplementedError
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
@@ -78,7 +73,23 @@ class OllamaEmbedder:
         return self._embed([text])[0]
 
 
-class OpenAICompatEmbedder:
+class OllamaEmbedder(_HttpEmbedder):
+    """Local Ollama server (http). Lighter Python deps, but a daemon must run."""
+
+    def __init__(self, model_name: str, base_url: str, batch_size: int = 64):
+        self._model = model_name
+        self._url = base_url.rstrip("/") + "/api/embed"
+        self._batch_size = batch_size
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        resp = httpx.post(
+            self._url, json={"model": self._model, "input": texts}, timeout=120
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"]
+
+
+class OpenAICompatEmbedder(_HttpEmbedder):
     """Any OpenAI-compatible /embeddings endpoint (SiliconFlow, DashScope, etc.)."""
 
     def __init__(self, model_name: str, base_url: str, api_key: str, batch_size: int = 64):
@@ -104,18 +115,6 @@ class OpenAICompatEmbedder:
         # Preserve input order regardless of provider response ordering.
         data.sort(key=lambda d: d["index"])
         return [d["embedding"] for d in data]
-
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        out: list[list[float]] = []
-        for batch in _batched(texts, self._batch_size):
-            out.extend(self._embed_batch(batch))
-        return out
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self._embed(texts)
-
-    def embed_query(self, text: str) -> list[float]:
-        return self._embed([text])[0]
 
 
 @lru_cache(maxsize=1)
