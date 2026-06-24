@@ -138,6 +138,17 @@ def _check_deadlinks(pages: list[tuple[Path, str, str]], names: set[str]) -> lis
     return violations
 
 
+def _date_key(m: re.Match) -> tuple[int, ...]:
+    """日期取**实际写出**的精度：(年[, 月[, 日]])。保留精度（而非用 0 补位）——
+    这样"只写年份"的条目不会与同年的完整日期被误判成乱序。"""
+    key = [int(m.group(1))]
+    if m.group(2):
+        key.append(int(m.group(2)))
+        if m.group(3):
+            key.append(int(m.group(3)))
+    return tuple(key)
+
+
 def _check_timeline_order(pages: list[tuple[Path, str, str]]) -> list[str]:
     """③ 时间线顺序。"""
     violations: list[str] = []
@@ -151,9 +162,13 @@ def _check_timeline_order(pages: list[tuple[Path, str, str]]) -> list[str]:
             m = DATE_RE.search(line)
             if not m:
                 continue
-            cur = (int(m.group(1)), int(m.group(2) or 0), int(m.group(3) or 0))
-            if prev is not None and cur < prev:
-                violations.append(f"[时间线乱序] {where}\n          {cur} 出现在 {prev} 之后")
+            cur = _date_key(m)
+            # 只比较两个日期共有的精度：只写年份的条目不与同年完整日期冲突，
+            # 但"年/月"层面的倒退仍会被抓。
+            if prev is not None:
+                n = min(len(prev), len(cur))
+                if cur[:n] < prev[:n]:
+                    violations.append(f"[时间线乱序] {where}\n          {cur} 出现在 {prev} 之后")
             prev = cur
     return violations
 

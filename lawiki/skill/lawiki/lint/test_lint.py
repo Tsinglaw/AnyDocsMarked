@@ -87,6 +87,25 @@ def test_timeline_in_order_passes(tmp_path):
     assert viol == []
 
 
+def test_timeline_year_only_after_full_date_not_flagged(tmp_path):
+    # A year-only entry is ambiguous within its year, so it must NOT be reported
+    # as out-of-order after a same-year full date (the old 0-padding falsely did).
+    _write(tmp_path / "_md" / "a.md", "x")
+    _write(tmp_path / "wiki" / "时间线" / "总览.md",
+           "# 时间线\n- 2021 年 5 月 3 日 甲\n- 2021 年 乙\n")
+    _, viol, _ = scan_case(tmp_path)
+    assert viol == []
+
+
+def test_timeline_year_regression_still_flagged_at_mixed_precision(tmp_path):
+    # A genuine year regression must still be caught even when precision differs.
+    _write(tmp_path / "_md" / "a.md", "x")
+    _write(tmp_path / "wiki" / "时间线" / "总览.md",
+           "# 时间线\n- 2022 年 甲\n- 2021 年 5 月 乙\n")
+    _, viol, _ = scan_case(tmp_path)
+    assert any("乱序" in v for v in viol)
+
+
 # ---- ④ 勾稽闭合 ----
 
 def test_closure_ok_passes(tmp_path):
