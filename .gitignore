@@ -9,7 +9,8 @@ __pycache__/
 # Virtualenv / uv
 .venv/
 venv/
-uv.lock
+# uv.lock is committed (not ignored): it pins exact dependency versions so CI
+# and `uv run`/`uv sync` builds are reproducible for these distributable tools.
 
 # 构建产物 / 向量库 / 案件数据（隐私）
 dist/
