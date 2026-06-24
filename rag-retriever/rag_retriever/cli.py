@@ -63,6 +63,14 @@ def main() -> None:
     sub.add_parser("list", help="list indexed documents")
     sub.add_parser("stats", help="show status")
 
+    p_doctor = sub.add_parser(
+        "doctor", help="check (and optionally repair) index/manifest integrity"
+    )
+    p_doctor.add_argument(
+        "--fix", action="store_true",
+        help="rebuild the manifest from the table if they have drifted",
+    )
+
     args = parser.parse_args()
     cfg = Config.load()
     if args.data_dir:
@@ -93,6 +101,8 @@ def main() -> None:
         print(json.dumps(r.list_sources(), ensure_ascii=False, indent=2))
     elif args.cmd == "stats":
         print(json.dumps(r.stats(), ensure_ascii=False, indent=2))
+    elif args.cmd == "doctor":
+        print(json.dumps(r.doctor(fix=args.fix), ensure_ascii=False, indent=2))
     else:  # pragma: no cover
         parser.print_help()
         sys.exit(1)

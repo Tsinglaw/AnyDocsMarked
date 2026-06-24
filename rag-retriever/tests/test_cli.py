@@ -41,6 +41,10 @@ class FakeRetriever:
     def stats(self):
         return {"documents": 1, "chunks": 1}
 
+    def doctor(self, fix=False):
+        FakeRetriever.last_index = {"doctor_fix": fix}
+        return {"in_sync": True, "manifest_chunks": 1, "table_chunks": 1}
+
 
 def _run(monkeypatch, argv):
     monkeypatch.setattr(cli, "Retriever", FakeRetriever)
@@ -78,3 +82,15 @@ def test_search_json_outputs_machine_readable(monkeypatch, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data[0]["source"] == "_md/a.md"
     assert data[0]["text"] == "命中原文"
+
+
+def test_doctor_fix_flag_reaches_retriever(monkeypatch, capsys):
+    _run(monkeypatch, ["rag-retriever", "doctor", "--fix"])
+    assert FakeRetriever.last_index == {"doctor_fix": True}
+    assert json.loads(capsys.readouterr().out)["in_sync"] is True
+
+
+def test_doctor_without_fix_defaults_false(monkeypatch, capsys):
+    _run(monkeypatch, ["rag-retriever", "doctor"])
+    assert FakeRetriever.last_index == {"doctor_fix": False}
+    capsys.readouterr()

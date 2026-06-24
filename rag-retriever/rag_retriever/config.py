@@ -66,6 +66,12 @@ class Config:
     # Empty = none. The retriever does not interpret these; callers do.
     metadata_fields: tuple[str, ...] = ()
 
+    # Max texts per request to the HTTP embedders (ollama/openai). A big document
+    # can yield hundreds of chunks; batching keeps each request under provider
+    # payload/timeout limits. Ignored by the local (fastembed) backend, which
+    # batches internally.
+    embed_batch_size: int = 64
+
     @classmethod
     def load(cls) -> "Config":
         backend = _env("RAG_EMBED_BACKEND", "local").lower()
@@ -85,4 +91,5 @@ class Config:
             chunk_tokens=_env_int("RAG_CHUNK_TOKENS", 800),
             chunk_overlap=_env_int("RAG_CHUNK_OVERLAP", 100),
             metadata_fields=split_csv(_env("RAG_METADATA_FIELDS", "")),
+            embed_batch_size=_env_int("RAG_EMBED_BATCH_SIZE", 64),
         )

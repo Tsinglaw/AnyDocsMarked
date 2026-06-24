@@ -54,6 +54,7 @@ uv run rag-retriever index "C:\path\to\docs"     # a file or a whole folder
 uv run rag-retriever search "什么是表见代理" -k 5
 uv run rag-retriever list
 uv run rag-retriever stats
+uv run rag-retriever doctor          # check manifest vs table; add --fix to repair
 ```
 
 ## Mount as an MCP server (the real entry point)

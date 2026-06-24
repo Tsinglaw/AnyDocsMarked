@@ -43,19 +43,33 @@ class LocalEmbedder:
         return next(iter(self._model.query_embed(text))).tolist()
 
 
+def _batched(texts: list[str], size: int):
+    """Yield successive slices of `texts` of at most `size` (>=1) items."""
+    step = max(1, size)
+    for i in range(0, len(texts), step):
+        yield texts[i:i + step]
+
+
 class OllamaEmbedder:
     """Local Ollama server (http). Lighter Python deps, but a daemon must run."""
 
-    def __init__(self, model_name: str, base_url: str):
+    def __init__(self, model_name: str, base_url: str, batch_size: int = 64):
         self._model = model_name
         self._url = base_url.rstrip("/") + "/api/embed"
+        self._batch_size = batch_size
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         resp = httpx.post(
             self._url, json={"model": self._model, "input": texts}, timeout=120
         )
         resp.raise_for_status()
         return resp.json()["embeddings"]
+
+    def _embed(self, texts: list[str]) -> list[list[float]]:
+        out: list[list[float]] = []
+        for batch in _batched(texts, self._batch_size):
+            out.extend(self._embed_batch(batch))
+        return out
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self._embed(texts)
@@ -67,7 +81,7 @@ class OllamaEmbedder:
 class OpenAICompatEmbedder:
     """Any OpenAI-compatible /embeddings endpoint (SiliconFlow, DashScope, etc.)."""
 
-    def __init__(self, model_name: str, base_url: str, api_key: str):
+    def __init__(self, model_name: str, base_url: str, api_key: str, batch_size: int = 64):
         if not api_key:
             raise ValueError(
                 "RAG_OPENAI_API_KEY is required for the 'openai' backend "
@@ -76,8 +90,9 @@ class OpenAICompatEmbedder:
         self._model = model_name
         self._url = base_url.rstrip("/") + "/embeddings"
         self._headers = {"Authorization": f"Bearer {api_key}"}
+        self._batch_size = batch_size
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         resp = httpx.post(
             self._url,
             json={"model": self._model, "input": texts},
@@ -89,6 +104,12 @@ class OpenAICompatEmbedder:
         # Preserve input order regardless of provider response ordering.
         data.sort(key=lambda d: d["index"])
         return [d["embedding"] for d in data]
+
+    def _embed(self, texts: list[str]) -> list[list[float]]:
+        out: list[list[float]] = []
+        for batch in _batched(texts, self._batch_size):
+            out.extend(self._embed_batch(batch))
+        return out
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self._embed(texts)
@@ -102,7 +123,9 @@ def get_embedder(cfg: Config) -> Embedder:
     if cfg.embed_backend == "local":
         return LocalEmbedder(cfg.embed_model)
     if cfg.embed_backend == "ollama":
-        return OllamaEmbedder(cfg.embed_model, cfg.ollama_url)
+        return OllamaEmbedder(cfg.embed_model, cfg.ollama_url, cfg.embed_batch_size)
     if cfg.embed_backend == "openai":
-        return OpenAICompatEmbedder(cfg.embed_model, cfg.openai_base_url, cfg.openai_api_key)
+        return OpenAICompatEmbedder(
+            cfg.embed_model, cfg.openai_base_url, cfg.openai_api_key, cfg.embed_batch_size
+        )
     raise ValueError(f"Unknown embed backend: {cfg.embed_backend}")

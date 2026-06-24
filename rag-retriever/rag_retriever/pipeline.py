@@ -88,6 +88,27 @@ class Retriever:
     def list_sources(self) -> list[dict]:
         return self.store.list_sources()
 
+    def doctor(self, fix: bool = False) -> dict:
+        """Check the cached manifest against the table's real contents.
+
+        The manifest is a sidecar that can desync from the table (crash mid-write,
+        manual deletion). Report any drift; with fix=True, rebuild the manifest
+        from the table so list/count are correct again.
+        """
+        manifest = {row["source"]: row["chunks"] for row in self.store.list_sources()}
+        truth = self.store.table_manifest()
+        in_sync = manifest == truth
+        result = {
+            "in_sync": in_sync,
+            "manifest_documents": len(manifest),
+            "manifest_chunks": sum(manifest.values()),
+            "table_documents": len(truth),
+            "table_chunks": sum(truth.values()),
+        }
+        if not in_sync and fix:
+            result["repaired"] = self.store.reconcile()
+        return result
+
     def stats(self) -> dict:
         # Report BOTH the index-time model (persisted, None until first index)
         # and the live query model, so a consumer can detect a mismatch that

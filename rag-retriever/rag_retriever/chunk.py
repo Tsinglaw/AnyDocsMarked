@@ -12,11 +12,21 @@ import re
 
 import tiktoken
 
-_enc = tiktoken.get_encoding("o200k_base")
+# Lazily built: `get_encoding` may fetch the BPE file on first use, so doing it
+# at import would force a network round-trip just to import this module (and
+# break the "local-first / offline" promise). Build it on first count instead.
+_enc = None
+
+
+def _encoder():
+    global _enc
+    if _enc is None:
+        _enc = tiktoken.get_encoding("o200k_base")
+    return _enc
 
 
 def count_tokens(text: str) -> int:
-    return len(_enc.encode(text))
+    return len(_encoder().encode(text))
 
 
 def _split_units(text: str) -> list[str]:
