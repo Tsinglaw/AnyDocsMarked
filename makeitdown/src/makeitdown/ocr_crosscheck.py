@@ -8,7 +8,9 @@ the legally dangerous bits, called out separately.
 
 from __future__ import annotations
 
+import difflib
 import re
+from dataclasses import dataclass, field
 
 # Full-width digits/letters → half-width.
 _WIDTH_MAP = {ord(c): ord(c) - 0xFEE0 for c in
@@ -25,6 +27,49 @@ _PUNCT_TABLE = {ord(k): v for k, v in _PUNCT_MAP.items()}
 
 _WS_RE = re.compile(r"\s+")
 _THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+
+
+# Digit runs and date-like tokens — the legally dangerous bits to compare exactly.
+_NUM_TOKEN_RE = re.compile(r"\d+(?:年|月|日)?")
+
+
+@dataclass
+class CrossCheck:
+    disagreement_ratio: float = 0.0
+    digit_mismatches: int = 0
+    reasons: list[str] = field(default_factory=list)
+
+
+def _char_disagreement_ratio(a: str, b: str) -> float:
+    """1 - similarity, via difflib ratio on normalized strings."""
+    if not a and not b:
+        return 0.0
+    return 1.0 - difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+def _digit_mismatch_count(a: str, b: str) -> int:
+    """Number of positions where the ordered digit/date tokens of a and b differ."""
+    ta, tb = _NUM_TOKEN_RE.findall(a), _NUM_TOKEN_RE.findall(b)
+    n = max(len(ta), len(tb))
+    mism = abs(len(ta) - len(tb))
+    for x, y in zip(ta, tb):
+        if x != y:
+            mism += 1
+    return mism if n else 0
+
+
+def compare(primary: str, secondary: str, ratio_threshold: float = 0.1) -> CrossCheck:
+    """Compare two OCR outputs after normalization. Returns disagreement metrics
+    and at most one summary reason string (empty list = clean)."""
+    a, b = normalize(primary), normalize(secondary)
+    ratio = _char_disagreement_ratio(a, b)
+    digits = _digit_mismatch_count(a, b)
+    reasons: list[str] = []
+    if digits > 0 or ratio > ratio_threshold:
+        pct = ratio * 100
+        suffix = f"，含 {digits} 处数字/日期位不一致" if digits else ""
+        reasons.append(f"双OCR分歧 {pct:.1f}%{suffix}（Paddle×MinerU）")
+    return CrossCheck(disagreement_ratio=round(ratio, 4), digit_mismatches=digits, reasons=reasons)
 
 
 def normalize(text: str) -> str:
