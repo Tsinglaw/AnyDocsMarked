@@ -8,12 +8,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .chunk import chunk_text
+from .chunk import Chunk, chunk_document
 from .config import Config
 from .embed import get_embedder
 from .extract import extract_text, iter_files
 from .frontmatter import read_frontmatter, select_fields
 from .store import VectorStore
+
+
+def _compose(chunk: Chunk) -> str:
+    """Stored/embedded text: breadcrumb-prefixed so the vector carries section context."""
+    if chunk.heading_path:
+        return f"{chunk.heading_path}\n\n{chunk.text}"
+    return chunk.text
 
 
 def _relative_source(path: Path, source_root: str | Path | None) -> str:
@@ -57,11 +64,15 @@ class Retriever:
         if not text:
             return {"source": source, "indexed": False, "chunks": 0,
                     "reason": "no extractable text (scanned image without OCR?)"}
-        chunks = chunk_text(text, self.cfg.chunk_tokens, self.cfg.chunk_overlap)
-        vectors = self.embedder.embed_documents(chunks)
+        doc_chunks = chunk_document(
+            text, self.cfg.chunk_tokens, self.cfg.chunk_overlap, self.cfg.chunk_strategy
+        )
+        texts = [_compose(c) for c in doc_chunks]
+        metas = [{"heading_path": c.heading_path} if c.heading_path else {} for c in doc_chunks]
+        vectors = self.embedder.embed_documents(texts)
         meta = select_fields(read_frontmatter(path), self.cfg.metadata_fields)
         self.store.delete_source(source)
-        n = self.store.add(source, chunks, vectors, meta=meta)
+        n = self.store.add(source, texts, vectors, meta=meta, metas=metas)
         return {"source": source, "indexed": True, "chunks": n}
 
     def index_path(

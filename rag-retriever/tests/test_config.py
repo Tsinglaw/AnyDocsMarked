@@ -32,3 +32,13 @@ def test_explicit_chunk_tokens_overrides_backend_default(monkeypatch):
     monkeypatch.setenv("RAG_EMBED_BACKEND", "local")
     monkeypatch.setenv("RAG_CHUNK_TOKENS", "1234")
     assert Config.load().chunk_tokens == 1234
+
+
+def test_chunk_strategy_defaults_to_structure(monkeypatch):
+    monkeypatch.delenv("RAG_CHUNK_STRATEGY", raising=False)
+    assert Config.load().chunk_strategy == "structure"
+
+
+def test_chunk_strategy_env_override(monkeypatch):
+    monkeypatch.setenv("RAG_CHUNK_STRATEGY", "token")
+    assert Config.load().chunk_strategy == "token"

@@ -72,13 +72,11 @@ class VectorStore:
 
     def add(
         self, source: str, chunks: list[str], vectors: list[list[float]],
-        meta: dict | None = None,
+        meta: dict | None = None, metas: list[dict] | None = None,
     ) -> int:
         if not chunks:
             return 0
         new_dim = len(vectors[0])
-        # Open the table once: reuse it if it exists (and guard its dimension),
-        # else create it at the new dimension.
         tbl = self._table()
         if tbl is not None:
             existing = tbl.schema.field("vector").type.list_size
@@ -91,12 +89,17 @@ class VectorStore:
                 )
         else:
             tbl = self._table(dim=new_dim)
-        meta_json = json.dumps(meta or {}, ensure_ascii=False)
-        rows = [
-            {"id": f"{source}::{i}", "source": source, "ord": i,
-             "text": chunk, "meta": meta_json, "vector": vec}
-            for i, (chunk, vec) in enumerate(zip(chunks, vectors))
-        ]
+        base_meta = meta or {}
+        rows = []
+        for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+            row_meta = dict(base_meta)
+            if metas and i < len(metas):
+                row_meta.update(metas[i])
+            rows.append({
+                "id": f"{source}::{i}", "source": source, "ord": i,
+                "text": chunk, "meta": json.dumps(row_meta, ensure_ascii=False),
+                "vector": vec,
+            })
         tbl.add(rows)
         self._manifest[source] = len(rows)
         self._save_manifest()
