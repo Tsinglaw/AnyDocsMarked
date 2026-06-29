@@ -1,5 +1,6 @@
 from pathlib import Path
 import makeitdown.cli as cli
+from makeitdown.cli import _build_parser
 
 
 def test_cli_wires_args_to_convert_tree(tmp_path, monkeypatch):
@@ -145,6 +146,16 @@ def test_cli_summary_includes_structured_when_enabled(monkeypatch, capsys):
     monkeypatch.setenv("MAKEITDOWN_LLM_API_KEY", "ENVK")
     cli.main(["in", "--structure-headings"])
     assert "structured=4" in capsys.readouterr().out
+
+
+def test_cross_check_flag_parses():
+    args = _build_parser().parse_args(["indir", "--ocr-cross-check"])
+    assert args.ocr_cross_check is True
+
+
+def test_cross_check_defaults_off():
+    args = _build_parser().parse_args(["indir"])
+    assert args.ocr_cross_check is False
 
 
 def test_cli_notes_actionable_skips(monkeypatch, capsys):

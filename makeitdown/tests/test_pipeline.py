@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import makeitdown.pipeline as pl
+import makeitdown.pipeline as pipeline_mod
 from makeitdown.models import ConversionResult, LegacyConversionUnavailable
 
 
@@ -408,6 +409,36 @@ def test_low_confidence_ocr_flagged_as_warned(tmp_path, monkeypatch):
     md = (out / "b.md").read_text(encoding="utf-8")
     assert "quality: suspect" in md
     assert any("low-confidence" in r for r in report["warnings"][0]["reasons"])
+
+
+def test_cross_check_reasons_reach_report(monkeypatch, tmp_path):
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "scan.pdf").write_bytes(b"%PDF fake")
+    out = tmp_path / "out"
+
+    monkeypatch.setattr(pipeline_mod, "classify", lambda p, text_threshold: "ocr")
+
+    class _Disp:
+        def __init__(self, *a, **k):
+            assert k.get("cross_check") is True  # plumbing reached the dispatcher
+        def convert(self, path):
+            return ConversionResult(
+                text="金额为500000元", engine="local:pp-structurev3 × mineru",
+                pages=1, cross_check_reasons=["双OCR分歧 20.0%，含 1 处数字/日期位不一致（Paddle×MinerU）"],
+            )
+
+    monkeypatch.setattr(pipeline_mod, "OCRDispatcher", _Disp)
+
+    report = pipeline_mod.convert_tree(
+        src, out, ocr_engine="local", ocr_model=None, cloud_token=None,
+        workers=1, skip_existing=False, text_threshold=50,
+        report_path=out / "report.json", cross_check=True,
+    )
+    assert report["warned"] == 1
+    assert report["warnings"][0]["reasons"][0].startswith("双OCR分歧")
+    md = (out / "scan.pdf.md") if (out / "scan.pdf.md").exists() else (out / "scan.md")
+    assert "quality: suspect" in md.read_text("utf-8")
 
 
 def test_skip_existing_skips_up_to_date_output(tmp_path, monkeypatch):

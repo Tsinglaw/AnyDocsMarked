@@ -35,6 +35,13 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="keep images extracted from scans (default: text-only output)")
     # Defaults sourced from QualityThresholds so there is one source of truth.
     qt = QualityThresholds()
+    p.add_argument("--ocr-cross-check", action="store_true",
+                   help="run a second OCR engine (MinerU) and flag disagreements "
+                        "(opt-in; default off)")
+    p.add_argument("--cross-check-engine", default="mineru", choices=["mineru"],
+                   help="verifier engine for --ocr-cross-check (default: mineru)")
+    p.add_argument("--warn-cross-check-ratio", type=float, default=qt.cross_check_disagreement_ratio,
+                   help="warn if dual-OCR disagreement ratio exceeds this (0-1)")
     p.add_argument("--warn-min-chars", type=int, default=qt.min_chars,
                    help="warn if non-whitespace char count is below this")
     p.add_argument("--warn-min-chars-per-page", type=int, default=qt.min_chars_per_page,
@@ -112,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
         quality_thresholds=thresholds,
         keep_images=args.keep_images,
         structurer=structurer,
+        cross_check=args.ocr_cross_check,
+        cross_check_ratio=args.warn_cross_check_ratio,
     )
 
     structured = (f"structured={report.get('structured', 0)} "

@@ -86,11 +86,14 @@ def convert_tree(
     quality_thresholds: QualityThresholds | None = None,
     keep_images: bool = False,
     structurer=None,
+    cross_check: bool = False,
+    cross_check_ratio: float = 0.1,
 ) -> dict:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     dispatcher = OCRDispatcher(
-        engine=ocr_engine, model=ocr_model, token=cloud_token
+        engine=ocr_engine, model=ocr_model, token=cloud_token,
+        cross_check=cross_check, cross_check_ratio=cross_check_ratio,
     )
 
     report = {
@@ -166,7 +169,8 @@ def convert_tree(
             if not keep_images:
                 result.text = _strip_images(result.text)
                 result.assets = {}
-            reasons = struct_reasons + _quality_reasons(result, source_type)
+            cc_reasons = result.cross_check_reasons or []
+            reasons = struct_reasons + cc_reasons + _quality_reasons(result, source_type)
             _write_output(out_md, result, rel.as_posix(), source_type,
                           warnings=reasons)
             if reasons:

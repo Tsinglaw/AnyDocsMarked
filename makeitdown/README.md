@@ -121,6 +121,15 @@ makeitdown docs --ocr-engine cloud
 
 `report.json` 中 `succeeded` 与 `warned` 互斥：前者是产出且干净，后者是产出但可疑。
 
+### 双 OCR 互校（可选，默认关）
+
+法律高危材料可开 `--ocr-cross-check`：先把扫描页摆正，再用 **Paddle + MinerU** 两个
+独立引擎各识别一次，归一化后比对。分歧（尤其**金额/日期/数字位不一致**）会写进
+`report.json` 的 `warnings` 与该 `.md` 的 frontmatter（`quality: suspect`），**只标记、
+不改正文**。MinerU 不可用或互校出错时，自动退回单引擎产出并记一条警告，绝不丢转换结果。
+
+需安装 MinerU（可选依赖）。引擎标签会标为 `local:pp-structurev3 × mineru`。
+
 ### LLM 标题层级重建（可选，默认关）
 
 扫描件经 OCR 出来的是**扁平文本**，几乎没有 `#` 标题层级，下游知识库只能平铺。开启
