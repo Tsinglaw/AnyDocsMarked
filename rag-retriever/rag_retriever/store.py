@@ -12,6 +12,8 @@ from pathlib import Path
 
 import lancedb
 
+from .tokenize import tokenize_for_fts
+
 _TABLE = "chunks"
 
 
@@ -57,7 +59,7 @@ class VectorStore:
             return None
         schema_row = [{
             "id": "seed", "source": "", "ord": 0, "text": "",
-            "meta": "{}", "vector": [0.0] * dim,
+            "text_tokens": "", "meta": "{}", "vector": [0.0] * dim,
         }]
         tbl = self._db.create_table(_TABLE, data=schema_row)
         tbl.delete("id = 'seed'")
@@ -97,10 +99,16 @@ class VectorStore:
                 row_meta.update(metas[i])
             rows.append({
                 "id": f"{source}::{i}", "source": source, "ord": i,
-                "text": chunk, "meta": json.dumps(row_meta, ensure_ascii=False),
+                "text": chunk, "text_tokens": tokenize_for_fts(chunk),
+                "meta": json.dumps(row_meta, ensure_ascii=False),
                 "vector": vec,
             })
         tbl.add(rows)
+        try:
+            tbl.create_fts_index("text_tokens", replace=True)
+        except Exception:
+            # FTS is an optimization; never fail an index write because of it.
+            pass
         self._manifest[source] = len(rows)
         self._save_manifest()
         return len(rows)
@@ -126,6 +134,40 @@ class VectorStore:
                 "text": r["text"],
                 "score": round(1.0 - distance, 4),
                 "metadata": metadata,
+            })
+        return out
+
+    def has_fts(self) -> bool:
+        tbl = self._table()
+        if tbl is None:
+            return False
+        try:
+            return "text_tokens" in tbl.schema.names
+        except Exception:
+            return False
+
+    def search_text(self, query: str, k: int = 5) -> list[dict]:
+        """BM25 full-text search over pre-tokenized text. [] if unavailable."""
+        tbl = self._table()
+        if tbl is None or "text_tokens" not in tbl.schema.names:
+            return []
+        q = tokenize_for_fts(query)
+        if not q:
+            return []
+        try:
+            results = tbl.search(q, query_type="fts").limit(k).to_list()
+        except Exception:
+            return []
+        out = []
+        for rank, r in enumerate(results):
+            try:
+                metadata = json.loads(r.get("meta") or "{}")
+            except (ValueError, TypeError):
+                metadata = {}
+            out.append({
+                "source": r["source"], "ord": r["ord"], "text": r["text"],
+                "score": round(float(r.get("_score", 0.0)), 4),
+                "rank": rank, "metadata": metadata,
             })
         return out
 
