@@ -91,24 +91,33 @@ class VectorStore:
                 )
         else:
             tbl = self._table(dim=new_dim)
+        # Detect whether this table (legacy or new) has the text_tokens column.
+        # Legacy indexes (schema: id/source/ord/text/meta/vector) lack it; new
+        # tables created by _table(dim=...) always include it.  We omit the
+        # field entirely for legacy tables so the row matches their schema.
+        include_tokens = "text_tokens" in tbl.schema.names
         base_meta = meta or {}
         rows = []
         for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
             row_meta = dict(base_meta)
             if metas and i < len(metas):
                 row_meta.update(metas[i])
-            rows.append({
+            row = {
                 "id": f"{source}::{i}", "source": source, "ord": i,
-                "text": chunk, "text_tokens": tokenize_for_fts(chunk),
+                "text": chunk,
                 "meta": json.dumps(row_meta, ensure_ascii=False),
                 "vector": vec,
-            })
+            }
+            if include_tokens:
+                row["text_tokens"] = tokenize_for_fts(chunk)
+            rows.append(row)
         tbl.add(rows)
-        try:
-            tbl.create_fts_index("text_tokens", replace=True)
-        except Exception:
-            # FTS is an optimization; never fail an index write because of it.
-            pass
+        if include_tokens:
+            try:
+                tbl.create_fts_index("text_tokens", replace=True)
+            except Exception:
+                # FTS is an optimization; never fail an index write because of it.
+                pass
         self._manifest[source] = len(rows)
         self._save_manifest()
         return len(rows)

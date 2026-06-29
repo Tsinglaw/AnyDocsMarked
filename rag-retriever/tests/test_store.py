@@ -26,3 +26,20 @@ def test_text_tokens_column_present_after_add(tmp_path):
     s = VectorStore(tmp_path)
     _add(s, "doc.md", ["合同价款五十万元"])
     assert s.has_fts() is True
+
+
+def test_add_into_legacy_table_without_text_tokens(tmp_path):
+    import lancedb
+
+    db = lancedb.connect(str(tmp_path))
+    # Legacy schema: no text_tokens column
+    seed = [{"id": "seed", "source": "", "ord": 0, "text": "", "meta": "{}", "vector": [0.0, 0.0, 0.0]}]
+    t = db.create_table("chunks", data=seed)
+    t.delete("id = 'seed'")
+
+    s = VectorStore(tmp_path)
+    # Must NOT raise even though the table lacks text_tokens
+    s.add("doc.md", ["合同价款五十万元"], [[1.0, 0.0, 0.0]], metas=[{"heading_path": ""}])
+    assert s.has_fts() is False          # legacy table has no FTS column
+    assert s.search_text("合同", k=3) == []  # search_text falls back to empty
+    assert s.count() == 1               # the row was actually written
