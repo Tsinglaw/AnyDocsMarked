@@ -8,7 +8,7 @@ therefore never emit an oversized chunk, even when a single indivisible unit
 
 from __future__ import annotations
 
-from rag_retriever.chunk import chunk_text, count_tokens
+from rag_retriever.chunk import chunk_text, count_tokens, Chunk, chunk_document
 
 
 def test_short_text_is_one_chunk():
@@ -41,3 +41,25 @@ def test_oversized_unit_among_normal_units():
     text = f"短句一。\n\n{giant}\n\n短句二。"
     chunks = chunk_text(text, chunk_tokens=150, overlap=0)
     assert all(count_tokens(c) <= 150 for c in chunks)
+
+
+def test_chunk_document_token_strategy_wraps_chunk_text():
+    # token strategy must reproduce chunk_text exactly, wrapped as Chunk with empty path.
+    text = "\n\n".join(f"这是第{i}段内容。" * 5 for i in range(30))
+    plain = chunk_text(text, chunk_tokens=100, overlap=0)
+    docs = chunk_document(text, chunk_tokens=100, overlap=0, strategy="token")
+    assert [c.text for c in docs] == plain
+    assert all(isinstance(c, Chunk) for c in docs)
+    assert all(c.heading_path == "" for c in docs)
+
+
+def test_chunk_is_frozen():
+    c = Chunk(text="x", heading_path="a > b")
+    import dataclasses
+    assert dataclasses.is_dataclass(c)
+    try:
+        c.text = "y"  # frozen → should raise
+        raised = False
+    except dataclasses.FrozenInstanceError:
+        raised = True
+    assert raised
