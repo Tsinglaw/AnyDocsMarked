@@ -48,7 +48,10 @@ class VectorStore:
         )
 
     def _table(self, dim: int | None = None):
-        if _TABLE in self._db.table_names():
+        # list_tables() (table_names() is deprecated) returns a paginated
+        # response object; .tables is the name list. We only ever hold the one
+        # "chunks" table, so pagination never matters here.
+        if _TABLE in self._db.list_tables().tables:
             return self._db.open_table(_TABLE)
         if dim is None:
             return None
