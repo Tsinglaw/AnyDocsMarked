@@ -132,3 +132,11 @@ def test_structure_legal_marker_is_soft_boundary():
     joined = [c.text for c in docs]
     # no chunk should glue two different 第X条 markers together at this budget
     assert any("第一条" in t and "第二条" not in t for t in joined)
+
+
+def test_structure_enumerated_marker_midbody_is_soft_boundary():
+    body = "总则部分内容如下所述。\n一、甲方义务说明。\n二、乙方义务说明。"
+    text = f"# 合同\n\n{body}\n"
+    docs = chunk_document(text, chunk_tokens=10, overlap=0, strategy="structure")
+    joined = [c.text for c in docs]
+    assert any("一、" in t and "二、" not in t for t in joined)
