@@ -158,6 +158,77 @@ def _pack_units(units: list[str], chunk_tokens: int, overlap: int) -> list[str]:
     return chunks
 
 
+# Legal section markers used as soft (preferred) split points when a section has
+# no finer markdown structure. Order-independent; matched at unit-splitting time.
+_LEGAL_MARKERS = re.compile(
+    r"(第[一二三四五六七八九十百零\d]+条"
+    r"|^[（(][一二三四五六七八九十]+[)）]"
+    r"|^[一二三四五六七八九十]+、"
+    r"|本院认为|审理终结|如不服本判决|事实和理由|本院查明)"
+)
+
+
+def _is_table_line(line: str) -> bool:
+    s = line.strip()
+    return s.startswith("|") or ("|" in s and set(s) <= set("|-: "))
+
+
+def _split_table_block(block: str, max_tokens: int) -> list[str]:
+    """Keep a markdown table whole; if it exceeds max_tokens, split by rows and
+    repeat the header (first two lines: header + separator) on each piece."""
+    if count_tokens(block) <= max_tokens:
+        return [block]
+    lines = block.splitlines()
+    header = lines[:2]  # header row + separator
+    body_rows = lines[2:]
+    pieces: list[str] = []
+    cur = list(header)
+    cur_tokens = count_tokens("\n".join(cur))
+    for row in body_rows:
+        t = count_tokens(row)
+        if len(cur) > 2 and cur_tokens + t > max_tokens:
+            pieces.append("\n".join(cur))
+            cur = list(header)
+            cur_tokens = count_tokens("\n".join(cur))
+        cur.append(row)
+        cur_tokens += t
+    if len(cur) > 2:
+        pieces.append("\n".join(cur))
+    return pieces
+
+
+def _split_structured_units(body: str, max_tokens: int) -> list[str]:
+    """Split a section body into units, keeping tables atomic and preferring legal
+    markers as paragraph boundaries. Non-table prose falls back to _split_units."""
+    units: list[str] = []
+    lines = body.splitlines()
+    i = 0
+    while i < len(lines):
+        if _is_table_line(lines[i]):
+            j = i
+            while j < len(lines) and (_is_table_line(lines[j]) or lines[j].strip() == ""):
+                # stop at a blank line that ends the table
+                if lines[j].strip() == "" and j > i:
+                    break
+                j += 1
+            block = "\n".join(lines[i:j]).strip()
+            if block:
+                units.extend(_split_table_block(block, max_tokens))
+            i = j
+            continue
+        # gather a prose run until the next table line
+        j = i
+        while j < len(lines) and not _is_table_line(lines[j]):
+            j += 1
+        prose = "\n".join(lines[i:j]).strip()
+        if prose:
+            # insert paragraph breaks before legal markers so they split cleanly
+            marked = _LEGAL_MARKERS.sub(lambda m: "\n\n" + m.group(0), prose)
+            units.extend(_split_units(marked, max_tokens))
+        i = j
+    return units
+
+
 def chunk_text(text: str, chunk_tokens: int = 800, overlap: int = 100) -> list[str]:
     """Pack text into overlapping chunks of ~chunk_tokens tokens."""
     text = text.strip()
@@ -172,10 +243,15 @@ def chunk_document(
     text: str, chunk_tokens: int = 800, overlap: int = 100, strategy: str = "structure"
 ) -> list[Chunk]:
     """Structure-aware chunking. `strategy="token"` reproduces chunk_text exactly
-    (every chunk gets an empty heading_path); `strategy="structure"` is added in a
-    later task. Unknown strategies fall back to token.
+    (every chunk gets an empty heading_path); `strategy="structure"` uses parse_sections
+    to preserve section headings. Unknown strategies fall back to token.
     """
     if strategy != "structure":
         return [Chunk(text=t, heading_path="") for t in chunk_text(text, chunk_tokens, overlap)]
-    # Structure path is implemented in Task 3; until then, behave like token.
-    return [Chunk(text=t, heading_path="") for t in chunk_text(text, chunk_tokens, overlap)]
+    sections = parse_sections(text)
+    out: list[Chunk] = []
+    for sec in sections:
+        units = _split_structured_units(sec.body, chunk_tokens)
+        for piece in _pack_units(units, chunk_tokens, overlap):
+            out.append(Chunk(text=piece, heading_path=sec.heading_path))
+    return out

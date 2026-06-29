@@ -93,3 +93,42 @@ def test_parse_sections_no_headings_is_single_empty_path():
     secs = parse_sections("just flat text\n\nmore")
     assert len(secs) == 1
     assert secs[0].heading_path == ""
+
+
+def test_structure_chunk_carries_heading_path():
+    text = "# 合同\n\n## 第一条 标的\n\n货物为钢材。\n\n## 第二条 价款\n\n总价十万元。\n"
+    docs = chunk_document(text, chunk_tokens=800, overlap=0, strategy="structure")
+    paths = {c.heading_path for c in docs}
+    assert "合同 > 第一条 标的" in paths
+    assert "合同 > 第二条 价款" in paths
+
+
+def test_structure_keeps_small_table_intact():
+    table = "| 项目 | 金额 |\n|---|---|\n| 货款 | 50万 |\n| 利息 | 2万 |"
+    text = f"# 表\n\n{table}\n"
+    docs = chunk_document(text, chunk_tokens=800, overlap=0, strategy="structure")
+    # the whole table lands in a single chunk, header included
+    table_chunks = [c for c in docs if "项目" in c.text]
+    assert len(table_chunks) == 1
+    assert "货款" in table_chunks[0].text and "利息" in table_chunks[0].text
+
+
+def test_structure_oversize_table_row_split_repeats_header():
+    header = "| 列A | 列B |\n|---|---|"
+    rows = "\n".join(f"| 行{i}内容很长很长很长 | 值{i} |" for i in range(60))
+    text = f"# 大表\n\n{header}\n{rows}\n"
+    docs = chunk_document(text, chunk_tokens=120, overlap=0, strategy="structure")
+    table_chunks = [c for c in docs if "列A" in c.text]
+    assert len(table_chunks) > 1
+    # every table chunk repeats the header row
+    assert all("列A" in c.text and "---" in c.text for c in table_chunks)
+
+
+def test_structure_legal_marker_is_soft_boundary():
+    body = "第一条 当事人应诚信。第二条 标的为钢材。第三条 价款十万元。"
+    text = f"# 合同\n\n{body}\n"
+    # tiny budget so each 第X条 lands separately if they are split as units
+    docs = chunk_document(text, chunk_tokens=12, overlap=0, strategy="structure")
+    joined = [c.text for c in docs]
+    # no chunk should glue two different 第X条 markers together at this budget
+    assert any("第一条" in t and "第二条" not in t for t in joined)
