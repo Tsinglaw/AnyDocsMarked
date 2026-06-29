@@ -52,7 +52,9 @@ def parse_sections(text: str) -> list[Section]:
 
     def flush():
         body = "\n".join(buf).strip()
-        # Create section if there's body content OR if we have a non-empty heading path
+        # Keep a heading even with an empty body so its breadcrumb still appears
+        # (e.g. a heading immediately followed by a subheading); pure preamble with
+        # neither body nor heading is dropped.
         if body or cur_path:
             out.append(Section(heading_path=cur_path, body=body))
         buf.clear()
@@ -88,7 +90,7 @@ def count_tokens(text: str) -> int:
     return len(_encoder().encode(text))
 
 
-def _hard_split(unit: str, max_tokens: int) -> list[str]:
+def _hard_split(unit: str, max_tokens: int, n: int | None = None) -> list[str]:
     """Last-resort split of a single unit that itself exceeds ``max_tokens``.
 
     Used for a unit with no sentence punctuation to break on (a wall of text, a
@@ -96,9 +98,11 @@ def _hard_split(unit: str, max_tokens: int) -> list[str]:
     overshoot, so each piece lands at or under the budget. Slices the original
     string (lossless, never corrupts a character mid-codepoint, unlike decoding
     arbitrary token-id ranges); the token bound is approximate but the embedder
-    truncation it guards against is the real backstop.
+    truncation it guards against is the real backstop. ``n`` is the unit's
+    pre-computed token count when the caller already has it (avoids re-encoding).
     """
-    n = count_tokens(unit)
+    if n is None:
+        n = count_tokens(unit)
     if n <= max_tokens or not unit:
         return [unit]
     pieces = math.ceil(n / max_tokens)
@@ -115,14 +119,16 @@ def _split_units(text: str, max_tokens: int) -> list[str]:
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     units: list[str] = []
     for para in paras:
-        if count_tokens(para) <= 400:
-            candidates = [para]
+        para_tokens = count_tokens(para)
+        if para_tokens <= 400:
+            # (unit, known token count) — reuse the count just computed.
+            candidates: list[tuple[str, int | None]] = [(para, para_tokens)]
         else:
             # Long paragraph: fall back to sentence-ish splitting (CJK + latin punctuation).
             sentences = re.split(r"(?<=[。！？.!?])\s*", para)
-            candidates = [s.strip() for s in sentences if s.strip()]
-        for unit in candidates:
-            units.extend(_hard_split(unit, max_tokens))
+            candidates = [(s.strip(), None) for s in sentences if s.strip()]
+        for unit, n in candidates:
+            units.extend(_hard_split(unit, max_tokens, n))
     return units
 
 
@@ -182,15 +188,16 @@ def _split_table_block(block: str, max_tokens: int) -> list[str]:
     lines = block.splitlines()
     header = lines[:2]  # header row + separator
     body_rows = lines[2:]
+    header_tokens = count_tokens("\n".join(header))  # fixed for the whole block
     pieces: list[str] = []
     cur = list(header)
-    cur_tokens = count_tokens("\n".join(cur))
+    cur_tokens = header_tokens
     for row in body_rows:
         t = count_tokens(row)
         if len(cur) > 2 and cur_tokens + t > max_tokens:
             pieces.append("\n".join(cur))
             cur = list(header)
-            cur_tokens = count_tokens("\n".join(cur))
+            cur_tokens = header_tokens
         cur.append(row)
         cur_tokens += t
     if len(cur) > 2:
@@ -206,11 +213,9 @@ def _split_structured_units(body: str, max_tokens: int) -> list[str]:
     i = 0
     while i < len(lines):
         if _is_table_line(lines[i]):
+            # A blank line is not a table line, so the scan naturally stops there.
             j = i
-            while j < len(lines) and (_is_table_line(lines[j]) or lines[j].strip() == ""):
-                # stop at a blank line that ends the table
-                if lines[j].strip() == "" and j > i:
-                    break
+            while j < len(lines) and _is_table_line(lines[j]):
                 j += 1
             block = "\n".join(lines[i:j]).strip()
             if block:

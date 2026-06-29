@@ -40,8 +40,7 @@ def get_reranker(cfg: Config) -> Reranker | None:
     if cfg.rerank == "none":
         return None
     if cfg.rerank == "local":
-        model = cfg.embed_model if "rerank" in cfg.embed_model.lower() else "Xenova/ms-marco-MiniLM-L-6-v2"
-        return LocalReranker(model)
+        return LocalReranker(cfg.rerank_model)
     if cfg.rerank == "cloud":
         raise NotImplementedError(
             "cloud rerank is reserved; configure a SiliconFlow rerank endpoint in a "

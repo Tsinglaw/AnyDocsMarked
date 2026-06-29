@@ -31,6 +31,14 @@ def _read_json(path: Path, default):
     return default
 
 
+def _parse_meta(row: dict) -> dict:
+    """Deserialize a search-result row's stored meta JSON, tolerating absence/corruption."""
+    try:
+        return json.loads(row.get("meta") or "{}")
+    except (ValueError, TypeError):
+        return {}
+
+
 class VectorStore:
     def __init__(self, data_dir: Path):
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -112,15 +120,23 @@ class VectorStore:
                 row["text_tokens"] = tokenize_for_fts(chunk)
             rows.append(row)
         tbl.add(rows)
-        if include_tokens:
-            try:
-                tbl.create_fts_index("text_tokens", replace=True)
-            except Exception:
-                # FTS is an optimization; never fail an index write because of it.
-                pass
+        # Note: the FTS index is built once per batch via rebuild_fts(), not here —
+        # building it per file would rebuild the whole index N times during a batch.
         self._manifest[source] = len(rows)
         self._save_manifest()
         return len(rows)
+
+    def rebuild_fts(self) -> None:
+        """(Re)build the full-text index over text_tokens. Best-effort; call once
+        after a batch index, never per row. No-op for legacy tables lacking the column."""
+        tbl = self._table()
+        if tbl is None or "text_tokens" not in tbl.schema.names:
+            return
+        try:
+            tbl.create_fts_index("text_tokens", replace=True)
+        except Exception:
+            # FTS is an optimization; never fail because of it.
+            pass
 
     def search(self, query_vector: list[float], k: int = 5) -> list[dict]:
         tbl = self._table()
@@ -133,16 +149,12 @@ class VectorStore:
         for r in results:
             # LanceDB returns cosine *distance*; similarity = 1 - distance.
             distance = r.get("_distance", 0.0)
-            try:
-                metadata = json.loads(r.get("meta") or "{}")
-            except (ValueError, TypeError):
-                metadata = {}
             out.append({
                 "source": r["source"],
                 "ord": r["ord"],
                 "text": r["text"],
                 "score": round(1.0 - distance, 4),
-                "metadata": metadata,
+                "metadata": _parse_meta(r),
             })
         return out
 
@@ -168,15 +180,11 @@ class VectorStore:
         except Exception:
             return []
         out = []
-        for rank, r in enumerate(results):
-            try:
-                metadata = json.loads(r.get("meta") or "{}")
-            except (ValueError, TypeError):
-                metadata = {}
+        for r in results:
             out.append({
                 "source": r["source"], "ord": r["ord"], "text": r["text"],
                 "score": round(float(r.get("_score", 0.0)), 4),
-                "rank": rank, "metadata": metadata,
+                "metadata": _parse_meta(r),
             })
         return out
 

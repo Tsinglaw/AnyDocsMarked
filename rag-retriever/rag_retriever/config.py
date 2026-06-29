@@ -36,8 +36,7 @@ def split_csv(s: str) -> tuple[str, ...]:
     return tuple(f.strip() for f in s.split(",") if f.strip())
 
 
-# Default embedding model per backend. bge-m3 is strong on Chinese + long text.
-# Default embedding model per backend.
+# Default embedding model per backend (bge-m3 is strong on Chinese + long text).
 # - local (fastembed) has no bge-m3; bge-small-zh-v1.5 is the safe Chinese option.
 #   For higher quality stay local with intfloat/multilingual-e5-large or
 #   jinaai/jina-embeddings-v3, or use ollama/openai for true bge-m3.
@@ -97,6 +96,8 @@ class Config:
 
     # optional cross-encoder rerank: "none" (default) | "local" | "cloud"
     rerank: str = "none"
+    # cross-encoder model used when rerank == "local" (only loaded then)
+    rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
 
     @classmethod
     def load(cls) -> "Config":
@@ -123,4 +124,5 @@ class Config:
             rrf_k=_env_int("RAG_RRF_K", 60),
             hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
             rerank=_env("RAG_RERANK", "none").lower(),
+            rerank_model=_env("RAG_RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2"),
         )

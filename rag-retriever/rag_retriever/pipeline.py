@@ -16,6 +16,10 @@ from .frontmatter import read_frontmatter, select_fields
 from .rerank import get_reranker
 from .store import VectorStore
 
+# Sentinel for the lazily-resolved reranker: get_reranker() legitimately returns
+# None (reranking off), so None can't double as "not yet resolved".
+_UNSET = object()
+
 
 def _rrf_fuse(vector_hits: list[dict], text_hits: list[dict], rrf_k: int, k: int) -> list[dict]:
     """Reciprocal Rank Fusion over two ranked lists, keyed by (source, ord)."""
@@ -54,8 +58,7 @@ class Retriever:
         self.cfg = cfg or Config.load()
         self.store = VectorStore(self.cfg.data_dir)
         self._embedder = None  # lazy: don't load the model until needed
-        self._reranker = None
-        self._reranker_resolved = False
+        self._reranker = _UNSET  # lazy; None is a valid resolved value (rerank off)
 
     @property
     def embedder(self):
@@ -65,9 +68,8 @@ class Retriever:
 
     @property
     def reranker(self):
-        if not self._reranker_resolved:
+        if self._reranker is _UNSET:
             self._reranker = get_reranker(self.cfg)
-            self._reranker_resolved = True
         return self._reranker
 
     def index_file(self, path: str | Path, source_root: str | Path | None = None) -> dict:
@@ -113,9 +115,11 @@ class Retriever:
         results = [self.index_file(f, source_root=source_root) for f in files]
         indexed = [r for r in results if r["indexed"]]
         skipped = [r for r in results if not r["indexed"]]
-        # Record the index-time model once per run (not per file).
+        # Record the index-time model once per run (not per file), and build the
+        # full-text index once for the whole batch rather than once per file.
         if indexed:
             self.store.record_model(self.cfg.embed_backend, self.cfg.embed_model)
+            self.store.rebuild_fts()
         return {
             "path": str(Path(path).resolve()),
             "files_seen": len(files),

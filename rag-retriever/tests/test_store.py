@@ -4,6 +4,8 @@ from rag_retriever.store import VectorStore
 def _add(store, source, texts):
     vecs = [[float(i), 0.0, 0.0] for i, _ in enumerate(texts)]
     store.add(source, texts, vecs, metas=[{"heading_path": ""} for _ in texts])
+    # add() no longer builds the FTS index per-call; the batch driver does it once.
+    store.rebuild_fts()
 
 
 def test_search_text_finds_keyword(tmp_path):
@@ -12,7 +14,6 @@ def test_search_text_finds_keyword(tmp_path):
     hits = s.search_text("表见代理", k=3)
     assert hits, "BM25 should return at least one hit"
     assert "表见代理" in hits[0]["text"]
-    assert hits[0]["rank"] == 0
 
 
 def test_search_text_empty_on_old_index_without_fts(tmp_path):

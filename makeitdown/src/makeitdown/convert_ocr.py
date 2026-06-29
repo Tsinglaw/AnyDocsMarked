@@ -42,6 +42,8 @@ class OCRDispatcher:
         self.cross_check = cross_check
         self.cross_check_ratio = cross_check_ratio
         self._backend = None
+        self._verifier = None
+        self._verifier_resolved = False
         self._lock = threading.Lock()
 
     def _make_cloud(self) -> CloudOCR:
@@ -75,10 +77,18 @@ class OCRDispatcher:
         return self._backend
 
     def _make_verifier(self):
-        """The cross-check verifier engine (MinerU), or None if unavailable."""
-        if not MinerULocal.is_available():
-            return None
-        return MinerULocal()
+        """The cross-check verifier engine (MinerU), or None if unavailable.
+
+        Resolved once and cached: the availability probe and the (stateless)
+        instance don't change mid-batch, so we don't re-probe/re-allocate per file.
+        """
+        if self._verifier_resolved:
+            return self._verifier
+        with self._lock:
+            if not self._verifier_resolved:
+                self._verifier = MinerULocal() if MinerULocal.is_available() else None
+                self._verifier_resolved = True
+        return self._verifier
 
     def convert(self, path: Path) -> ConversionResult:
         result = self._resolve_backend().convert(path)
