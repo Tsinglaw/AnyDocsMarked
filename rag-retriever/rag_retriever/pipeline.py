@@ -13,6 +13,7 @@ from .config import Config
 from .embed import get_embedder
 from .extract import extract_text, iter_files
 from .frontmatter import read_frontmatter, select_fields
+from .rerank import get_reranker
 from .store import VectorStore
 
 
@@ -53,12 +54,21 @@ class Retriever:
         self.cfg = cfg or Config.load()
         self.store = VectorStore(self.cfg.data_dir)
         self._embedder = None  # lazy: don't load the model until needed
+        self._reranker = None
+        self._reranker_resolved = False
 
     @property
     def embedder(self):
         if self._embedder is None:
             self._embedder = get_embedder(self.cfg)
         return self._embedder
+
+    @property
+    def reranker(self):
+        if not self._reranker_resolved:
+            self._reranker = get_reranker(self.cfg)
+            self._reranker_resolved = True
+        return self._reranker
 
     def index_file(self, path: str | Path, source_root: str | Path | None = None) -> dict:
         """Extract, chunk, embed, and store one file. Re-indexes cleanly.
@@ -126,9 +136,13 @@ class Retriever:
         cand = max(k, self.cfg.hybrid_candidates)
         vector_hits = self.store.search(qvec, k=cand)
         text_hits = self.store.search_text(query, k=cand)
-        if not text_hits:
-            return vector_hits[:k]
-        return _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, k)
+        if text_hits:
+            fused = _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, cand)
+        else:
+            fused = vector_hits[:cand]
+        if self.reranker is not None:
+            return self.reranker.rerank(query, fused, k)
+        return fused[:k]
 
     def list_sources(self) -> list[dict]:
         return self.store.list_sources()

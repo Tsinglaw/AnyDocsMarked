@@ -95,6 +95,9 @@ class Config:
     rrf_k: int = 60
     hybrid_candidates: int = 50
 
+    # optional cross-encoder rerank: "none" (default) | "local" | "cloud"
+    rerank: str = "none"
+
     @classmethod
     def load(cls) -> "Config":
         backend = _env("RAG_EMBED_BACKEND", "local").lower()
@@ -119,4 +122,5 @@ class Config:
             hybrid=_env_bool("RAG_HYBRID", True),
             rrf_k=_env_int("RAG_RRF_K", 60),
             hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
+            rerank=_env("RAG_RERANK", "none").lower(),
         )
