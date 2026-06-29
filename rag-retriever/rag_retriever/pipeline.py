@@ -46,7 +46,14 @@ class Retriever:
         """
         path = Path(path).resolve()
         source = _relative_source(path, source_root)
-        text = extract_text(path)
+        # Isolate per-file extraction failures: a single encrypted/corrupt file
+        # in a folder must not abort the whole batch (mirrors makeitdown). It's
+        # reported as skipped-with-reason, like an empty extraction.
+        try:
+            text = extract_text(path)
+        except Exception as e:
+            return {"source": source, "indexed": False, "chunks": 0,
+                    "reason": f"extraction failed: {type(e).__name__}: {e}"}
         if not text:
             return {"source": source, "indexed": False, "chunks": 0,
                     "reason": "no extractable text (scanned image without OCR?)"}
