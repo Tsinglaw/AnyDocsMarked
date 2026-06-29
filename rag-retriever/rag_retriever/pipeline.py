@@ -68,6 +68,8 @@ class Retriever:
             text, self.cfg.chunk_tokens, self.cfg.chunk_overlap, self.cfg.chunk_strategy
         )
         texts = [_compose(c) for c in doc_chunks]
+        # Omit the key for headingless chunks: {} is cleaner than {"heading_path": ""}
+        # and keeps existing metadata tests (which expect no key when absent) green.
         metas = [{"heading_path": c.heading_path} if c.heading_path else {} for c in doc_chunks]
         vectors = self.embedder.embed_documents(texts)
         meta = select_fields(read_frontmatter(path), self.cfg.metadata_fields)
