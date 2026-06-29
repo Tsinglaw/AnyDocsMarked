@@ -41,6 +41,14 @@ _DEFAULT_MODEL = {
     "openai": "BAAI/bge-m3",  # SiliconFlow hosts bge-m3 under this id
 }
 
+# Default chunk size per backend, sized to the model's input window so chunks
+# aren't silently truncated at embed time. The local fastembed default
+# (bge-small-zh-v1.5) caps at 512 tokens; tiktoken (o200k) over-counts CJK vs
+# the model's tokenizer, so 384 leaves headroom. bge-m3 (ollama/openai) handles
+# 8192, so the larger 800 keeps more context per chunk. Override via
+# RAG_CHUNK_TOKENS regardless of backend.
+_DEFAULT_CHUNK_TOKENS = {"local": 384, "ollama": 800, "openai": 800}
+
 
 @dataclass(frozen=True)
 class Config:
@@ -88,7 +96,7 @@ class Config:
             openai_base_url=_env("RAG_OPENAI_BASE_URL", "https://api.siliconflow.cn/v1"),
             openai_api_key=_env("RAG_OPENAI_API_KEY", ""),
             data_dir=data_dir,
-            chunk_tokens=_env_int("RAG_CHUNK_TOKENS", 800),
+            chunk_tokens=_env_int("RAG_CHUNK_TOKENS", _DEFAULT_CHUNK_TOKENS[backend]),
             chunk_overlap=_env_int("RAG_CHUNK_OVERLAP", 100),
             metadata_fields=split_csv(_env("RAG_METADATA_FIELDS", "")),
             embed_batch_size=_env_int("RAG_EMBED_BATCH_SIZE", 64),
