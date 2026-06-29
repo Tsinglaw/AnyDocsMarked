@@ -8,6 +8,7 @@ straddles a boundary is still retrievable. Token counts use tiktoken o200k_base
 
 from __future__ import annotations
 
+import math
 import re
 from functools import cache
 
@@ -26,17 +27,41 @@ def count_tokens(text: str) -> int:
     return len(_encoder().encode(text))
 
 
-def _split_units(text: str) -> list[str]:
-    """Break text into small units (paragraphs, then sentences) to pack into chunks."""
+def _hard_split(unit: str, max_tokens: int) -> list[str]:
+    """Last-resort split of a single unit that itself exceeds ``max_tokens``.
+
+    Used for a unit with no sentence punctuation to break on (a wall of text, a
+    giant table row). Split by character count, proportional to the token
+    overshoot, so each piece lands at or under the budget. Slices the original
+    string (lossless, never corrupts a character mid-codepoint, unlike decoding
+    arbitrary token-id ranges); the token bound is approximate but the embedder
+    truncation it guards against is the real backstop.
+    """
+    n = count_tokens(unit)
+    if n <= max_tokens or not unit:
+        return [unit]
+    pieces = math.ceil(n / max_tokens)
+    size = math.ceil(len(unit) / pieces)
+    return [unit[i:i + size] for i in range(0, len(unit), size)]
+
+
+def _split_units(text: str, max_tokens: int) -> list[str]:
+    """Break text into small units (paragraphs, then sentences) to pack into chunks.
+
+    No unit may exceed ``max_tokens``: an over-budget sentence is hard-split so a
+    single indivisible unit can never become an oversized (truncated-at-embed) chunk.
+    """
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     units: list[str] = []
     for para in paras:
         if count_tokens(para) <= 400:
-            units.append(para)
+            candidates = [para]
         else:
             # Long paragraph: fall back to sentence-ish splitting (CJK + latin punctuation).
             sentences = re.split(r"(?<=[。！？.!?])\s*", para)
-            units.extend(s.strip() for s in sentences if s.strip())
+            candidates = [s.strip() for s in sentences if s.strip()]
+        for unit in candidates:
+            units.extend(_hard_split(unit, max_tokens))
     return units
 
 
@@ -48,7 +73,7 @@ def chunk_text(text: str, chunk_tokens: int = 800, overlap: int = 100) -> list[s
     if count_tokens(text) <= chunk_tokens:
         return [text]
 
-    units = _split_units(text)
+    units = _split_units(text, chunk_tokens)
     chunks: list[str] = []
     current: list[str] = []
     current_tokens = 0
