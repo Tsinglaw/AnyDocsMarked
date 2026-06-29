@@ -28,6 +28,54 @@ class Chunk:
     heading_path: str
 
 
+@dataclass(frozen=True)
+class Section:
+    heading_path: str
+    body: str
+
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+
+
+def parse_sections(text: str) -> list[Section]:
+    """Split markdown into sections by ATX headings, tracking a heading breadcrumb.
+
+    The text before the first heading becomes a leading section with an empty path.
+    A heading at level L resets any deeper levels on the stack, so a `## D` after a
+    `### C` drops C from the trail.
+    """
+    lines = text.splitlines()
+    stack: list[tuple[int, str]] = []  # (level, title)
+    cur_path = ""
+    buf: list[str] = []
+    out: list[Section] = []
+
+    def flush():
+        body = "\n".join(buf).strip()
+        # Create section if there's body content OR if we have a non-empty heading path
+        if body or cur_path:
+            out.append(Section(heading_path=cur_path, body=body))
+        buf.clear()
+
+    for line in lines:
+        m = _HEADING_RE.match(line)
+        if not m:
+            buf.append(line)
+            continue
+        flush()
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack.append((level, title))
+        cur_path = " > ".join(t for _, t in stack)
+    flush()
+
+    if not out:
+        return [Section(heading_path="", body=text.strip())]
+    return out
+
+
 @cache
 def _encoder():
     # Lazily built: `get_encoding` may fetch the BPE file on first use, so doing

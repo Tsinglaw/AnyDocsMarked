@@ -8,7 +8,7 @@ therefore never emit an oversized chunk, even when a single indivisible unit
 
 from __future__ import annotations
 
-from rag_retriever.chunk import chunk_text, count_tokens, Chunk, chunk_document
+from rag_retriever.chunk import chunk_text, count_tokens, Chunk, chunk_document, Section, parse_sections
 
 
 def test_short_text_is_one_chunk():
@@ -63,3 +63,33 @@ def test_chunk_is_frozen():
     except dataclasses.FrozenInstanceError:
         raised = True
     assert raised
+
+
+def test_parse_sections_builds_breadcrumb():
+    text = (
+        "前言段落。\n\n"
+        "# 民事判决书\n\n"
+        "开头。\n\n"
+        "## 本院认为\n\n"
+        "认定段。\n\n"
+        "## 判决结果\n\n"
+        "如下。\n"
+    )
+    secs = parse_sections(text)
+    paths = [s.heading_path for s in secs]
+    assert paths == ["", "民事判决书", "民事判决书 > 本院认为", "民事判决书 > 判决结果"]
+    assert secs[0].body.strip() == "前言段落。"
+    assert "认定段" in secs[2].body
+
+
+def test_parse_sections_deeper_then_shallower_resets_stack():
+    text = "# A\n\n## B\n\n### C\n\ncc\n\n## D\n\ndd\n"
+    paths = [s.heading_path for s in parse_sections(text)]
+    # going from ### C back to ## D must drop C from the trail
+    assert paths == ["A", "A > B", "A > B > C", "A > D"]
+
+
+def test_parse_sections_no_headings_is_single_empty_path():
+    secs = parse_sections("just flat text\n\nmore")
+    assert len(secs) == 1
+    assert secs[0].heading_path == ""
