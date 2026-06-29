@@ -92,6 +92,7 @@ class OCRDispatcher:
             other = verifier.convert(path)
             cc = compare(result.text, other.text, ratio_threshold=self.cross_check_ratio)
             result.cross_check_reasons = cc.reasons
+            # other.engine is the verifier's label (MinerULocal.convert sets it to engine_label="mineru")
             result.engine = f"{result.engine} × {other.engine}"
         except Exception as e:  # never lose the primary conversion
             result.cross_check_reasons = [f"双OCR互校失败（已保留主引擎结果）：{type(e).__name__}"]

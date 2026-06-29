@@ -83,6 +83,7 @@ def test_crosscheck_clean_when_engines_agree(monkeypatch, tmp_path):
     d = _dispatcher_with(monkeypatch, _FakePrimary(), verifier_text="金额为500000元")
     result = d.convert(tmp_path / "x.pdf")
     assert not result.cross_check_reasons
+    assert "mineru" in result.engine
 
 
 def test_crosscheck_degrades_when_verifier_unavailable(monkeypatch, tmp_path):
