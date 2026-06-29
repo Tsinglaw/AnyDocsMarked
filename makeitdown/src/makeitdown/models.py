@@ -19,6 +19,7 @@ class ConversionResult:
     pages: int | None = None
     assets: dict[str, bytes] = field(default_factory=dict)
     confidences: list[float] | None = None
+    cross_check_reasons: list[str] | None = None
 
 
 class OCRUnavailableError(RuntimeError):
