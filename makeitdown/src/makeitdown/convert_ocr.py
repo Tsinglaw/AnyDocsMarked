@@ -3,7 +3,9 @@ from pathlib import Path
 
 from .models import ConversionResult, OCRUnavailableError
 from .ocr_cloud import CloudOCR
+from .ocr_crosscheck import compare
 from .ocr_local import LocalOCR
+from .ocr_mineru import MinerULocal
 
 # Private alias that keeps the original class reference even when the module-level
 # `LocalOCR` name is replaced by monkeypatching in tests.  Availability checks
@@ -30,11 +32,15 @@ class OCRDispatcher:
         model: str | None = None,
         token: str | None = None,
         poll_interval: float = 5.0,
+        cross_check: bool = False,
+        cross_check_ratio: float = 0.1,
     ):
         self.engine = engine
         self.model = model
         self.token = token
         self.poll_interval = poll_interval
+        self.cross_check = cross_check
+        self.cross_check_ratio = cross_check_ratio
         self._backend = None
         self._lock = threading.Lock()
 
@@ -68,5 +74,25 @@ class OCRDispatcher:
                 raise ValueError(f"unknown ocr engine: {self.engine}")
         return self._backend
 
+    def _make_verifier(self):
+        """The cross-check verifier engine (MinerU), or None if unavailable."""
+        if not MinerULocal.is_available():
+            return None
+        return MinerULocal()
+
     def convert(self, path: Path) -> ConversionResult:
-        return self._resolve_backend().convert(path)
+        result = self._resolve_backend().convert(path)
+        if not self.cross_check:
+            return result
+        verifier = self._make_verifier()
+        if verifier is None:
+            result.cross_check_reasons = ["双OCR互校跳过：校验引擎 MinerU 不可用"]
+            return result
+        try:
+            other = verifier.convert(path)
+            cc = compare(result.text, other.text, ratio_threshold=self.cross_check_ratio)
+            result.cross_check_reasons = cc.reasons
+            result.engine = f"{result.engine} × {other.engine}"
+        except Exception as e:  # never lose the primary conversion
+            result.cross_check_reasons = [f"双OCR互校失败（已保留主引擎结果）：{type(e).__name__}"]
+        return result
