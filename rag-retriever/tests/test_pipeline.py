@@ -4,6 +4,7 @@ import pytest
 
 from rag_retriever.chunk import Chunk
 from rag_retriever import pipeline as pipeline_mod
+from rag_retriever.pipeline import _rrf_fuse
 from rag_retriever.config import Config
 
 
@@ -40,6 +41,39 @@ def _retriever(monkeypatch, tmp_path, text, strategy="structure"):
     monkeypatch.setattr(pipeline_mod, "read_frontmatter", lambda p: {})
     monkeypatch.setattr(pipeline_mod, "select_fields", lambda fm, fields: {})
     return r
+
+
+def test_rrf_fuse_rewards_agreement():
+    # B is ranked highly by both channels → should win after fusion.
+    vector = [
+        {"source": "d", "ord": 1, "text": "A", "score": 0.9, "metadata": {}},
+        {"source": "d", "ord": 2, "text": "B", "score": 0.8, "metadata": {}},
+    ]
+    text = [
+        {"source": "d", "ord": 2, "text": "B", "score": 5.0, "rank": 0, "metadata": {}},
+        {"source": "d", "ord": 3, "text": "C", "score": 3.0, "rank": 1, "metadata": {}},
+    ]
+    fused = _rrf_fuse(vector, text, rrf_k=60, k=3)
+    assert fused[0]["ord"] == 2  # B appears in both → highest fused score
+    ids = [(h["source"], h["ord"]) for h in fused]
+    assert ids[0] == ("d", 2)
+
+
+def test_search_falls_back_to_vector_when_no_fts(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg = type(cfg)(**{**cfg.__dict__, "data_dir": tmp_path, "hybrid": True})
+    r = pipeline_mod.Retriever(cfg)
+    r._embedder = _FakeEmbedder()
+
+    class _S:
+        def search(self, vec, k):
+            return [{"source": "d", "ord": 0, "text": "hit", "score": 0.5, "metadata": {}}]
+        def search_text(self, q, k):
+            return []  # no FTS
+
+    r.store = _S()
+    hits = r.search("query", k=3)
+    assert hits and hits[0]["text"] == "hit"
 
 
 def test_index_file_stores_heading_path_in_meta(monkeypatch, tmp_path):

@@ -24,6 +24,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def split_csv(s: str) -> tuple[str, ...]:
     """Parse a comma-separated list into a tuple of non-empty trimmed fields."""
     return tuple(f.strip() for f in s.split(",") if f.strip())
@@ -83,6 +90,11 @@ class Config:
     # chunking strategy: "structure" (heading/table/legal-marker aware) | "token"
     chunk_strategy: str = "structure"
 
+    # hybrid retrieval (BM25 + vector via RRF)
+    hybrid: bool = True
+    rrf_k: int = 60
+    hybrid_candidates: int = 50
+
     @classmethod
     def load(cls) -> "Config":
         backend = _env("RAG_EMBED_BACKEND", "local").lower()
@@ -104,4 +116,7 @@ class Config:
             metadata_fields=split_csv(_env("RAG_METADATA_FIELDS", "")),
             embed_batch_size=_env_int("RAG_EMBED_BATCH_SIZE", 64),
             chunk_strategy=_env("RAG_CHUNK_STRATEGY", "structure").lower(),
+            hybrid=_env_bool("RAG_HYBRID", True),
+            rrf_k=_env_int("RAG_RRF_K", 60),
+            hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
         )

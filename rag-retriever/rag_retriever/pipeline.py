@@ -16,6 +16,23 @@ from .frontmatter import read_frontmatter, select_fields
 from .store import VectorStore
 
 
+def _rrf_fuse(vector_hits: list[dict], text_hits: list[dict], rrf_k: int, k: int) -> list[dict]:
+    """Reciprocal Rank Fusion over two ranked lists, keyed by (source, ord)."""
+    scores: dict[tuple, float] = {}
+    rep: dict[tuple, dict] = {}
+    for ranked in (vector_hits, text_hits):
+        for rank, hit in enumerate(ranked):
+            key = (hit["source"], hit["ord"])
+            scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
+            rep.setdefault(key, hit)
+    fused = []
+    for key, score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True):
+        hit = dict(rep[key])
+        hit["score"] = round(score, 6)
+        fused.append(hit)
+    return fused[:k]
+
+
 def _compose(chunk: Chunk) -> str:
     """Stored/embedded text: breadcrumb-prefixed so the vector carries section context."""
     if chunk.heading_path:
@@ -99,11 +116,19 @@ class Retriever:
         }
 
     def search(self, query: str, k: int = 5) -> list[dict]:
-        """Return the top-k most relevant chunks for a query. No answer generation."""
+        """Top-k relevant chunks. Hybrid (BM25+vector RRF) when enabled and FTS
+        is available; otherwise pure vector. No answer generation."""
         if not query.strip():
             return []
         qvec = self.embedder.embed_query(query)
-        return self.store.search(qvec, k=k)
+        if not self.cfg.hybrid:
+            return self.store.search(qvec, k=k)
+        cand = max(k, self.cfg.hybrid_candidates)
+        vector_hits = self.store.search(qvec, k=cand)
+        text_hits = self.store.search_text(query, k=cand)
+        if not text_hits:
+            return vector_hits[:k]
+        return _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, k)
 
     def list_sources(self) -> list[dict]:
         return self.store.list_sources()

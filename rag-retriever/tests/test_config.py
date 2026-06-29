@@ -42,3 +42,17 @@ def test_chunk_strategy_defaults_to_structure(monkeypatch):
 def test_chunk_strategy_env_override(monkeypatch):
     monkeypatch.setenv("RAG_CHUNK_STRATEGY", "token")
     assert Config.load().chunk_strategy == "token"
+
+
+def test_hybrid_defaults(monkeypatch):
+    for var in ("RAG_HYBRID", "RAG_RRF_K", "RAG_HYBRID_CANDIDATES"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = Config.load()
+    assert cfg.hybrid is True
+    assert cfg.rrf_k == 60
+    assert cfg.hybrid_candidates == 50
+
+
+def test_hybrid_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("RAG_HYBRID", "0")
+    assert Config.load().hybrid is False
