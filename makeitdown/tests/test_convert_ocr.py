@@ -1,5 +1,8 @@
+import pytest
 from pathlib import Path
 import makeitdown.convert_ocr as co
+from makeitdown import convert_ocr
+from makeitdown.cloud_consent import CloudConsentRequired
 from makeitdown.models import ConversionResult, OCRUnavailableError
 
 
@@ -22,7 +25,8 @@ def test_auto_prefers_local_when_available(monkeypatch):
 def test_auto_falls_back_to_cloud_when_local_missing(monkeypatch):
     monkeypatch.setattr(co.LocalOCR, "is_available", staticmethod(lambda: False))
     monkeypatch.setattr(co, "CloudOCR", lambda **k: _FakeBackend("cloud:paddleocr-vl-1.6"))
-    d = co.OCRDispatcher(engine="auto", token="TKN")
+    # cloud_consent=True required: auto-to-cloud fallback now gates on consent.
+    d = co.OCRDispatcher(engine="auto", token="TKN", cloud_consent=True)
     r = d.convert(Path("x.png"))
     assert r.engine == "cloud:paddleocr-vl-1.6"
 
@@ -40,7 +44,8 @@ def test_auto_raises_clear_error_when_neither(monkeypatch):
 
 
 def test_explicit_cloud_without_token_raises(monkeypatch):
-    d = co.OCRDispatcher(engine="cloud", token=None)
+    # cloud_consent=True so the consent gate passes; the token check then fires.
+    d = co.OCRDispatcher(engine="cloud", token=None, cloud_consent=True)
     try:
         d.convert(Path("x.png"))
         assert False, "expected OCRUnavailableError"
@@ -93,3 +98,51 @@ def test_crosscheck_degrades_when_verifier_unavailable(monkeypatch, tmp_path):
     result = d.convert(tmp_path / "x.pdf")
     assert result.text == "金额为500000元"          # never lose the conversion
     assert result.cross_check_reasons == ["双OCR互校跳过：校验引擎 MinerU 不可用"]
+
+
+# ---------------------------------------------------------------------------
+# Task 4: cloud-default primary, consent gate, verifier mode
+# ---------------------------------------------------------------------------
+
+def test_primary_cloud_default_requires_consent(monkeypatch, tmp_path):
+    # engine defaults to cloud; without consent, resolving the backend must refuse.
+    d = convert_ocr.OCRDispatcher(token="tok", cloud_consent=False)
+    assert d.engine == "cloud"
+    with pytest.raises(CloudConsentRequired):
+        d.convert(tmp_path / "x.pdf")
+
+
+def test_primary_local_bypasses_consent(monkeypatch, tmp_path):
+    d = convert_ocr.OCRDispatcher(engine="local", cloud_consent=False)
+    sentinel = ConversionResult(text="本地结果", engine="local:pp-structurev3", pages=1)
+
+    class _Local:
+        @staticmethod
+        def is_available(): return True
+        def convert(self, p): return sentinel
+
+    monkeypatch.setattr(convert_ocr, "_LocalOCR_cls", _Local)
+    monkeypatch.setattr(convert_ocr, "LocalOCR", lambda model=None: _Local())
+    assert d.convert(tmp_path / "x.pdf").text == "本地结果"
+
+
+def test_verifier_mode_local_unavailable_skips(monkeypatch):
+    d = convert_ocr.OCRDispatcher(engine="local", cross_check=True, cross_check_mode="local")
+    monkeypatch.setattr(convert_ocr.MinerULocal, "is_available", staticmethod(lambda: False))
+    assert d._make_verifier() is None
+
+
+def test_verifier_mode_cloud_needs_consent(monkeypatch):
+    # cross_check_mode=cloud but no consent → verifier unavailable (skip), never upload.
+    d = convert_ocr.OCRDispatcher(engine="local", cross_check=True,
+                                  cross_check_mode="cloud", cloud_consent=False,
+                                  mineru_token="tok")
+    assert d._make_verifier() is None
+
+
+def test_verifier_mode_cloud_builds_with_consent(monkeypatch):
+    d = convert_ocr.OCRDispatcher(engine="local", cross_check=True,
+                                  cross_check_mode="cloud", cloud_consent=True,
+                                  mineru_token="tok")
+    v = d._make_verifier()
+    assert v is not None and v.engine_label == "mineru-cloud"
