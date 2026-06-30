@@ -441,6 +441,33 @@ def test_cross_check_reasons_reach_report(monkeypatch, tmp_path):
     assert "quality: suspect" in md.read_text("utf-8")
 
 
+def test_convert_tree_threads_consent_and_mode(monkeypatch, tmp_path):
+    src = tmp_path / "in"; src.mkdir()
+    (src / "scan.pdf").write_bytes(b"%PDF fake")
+    out = tmp_path / "out"
+    monkeypatch.setattr(pipeline_mod, "classify", lambda p, text_threshold: "ocr")
+
+    captured = {}
+
+    class _Disp:
+        def __init__(self, *a, **k):
+            captured.update(k)
+        def convert(self, path):
+            from makeitdown.models import ConversionResult
+            return ConversionResult(text="结果", engine="cloud:paddleocr-vl-1.6", pages=1)
+
+    monkeypatch.setattr(pipeline_mod, "OCRDispatcher", _Disp)
+    pipeline_mod.convert_tree(
+        src, out, ocr_engine="cloud", ocr_model=None, cloud_token="tok",
+        workers=1, skip_existing=False, text_threshold=50,
+        report_path=out / "report.json",
+        cross_check=True, cross_check_mode="local", cloud_consent=True, mineru_token="mt",
+    )
+    assert captured["cross_check_mode"] == "local"
+    assert captured["cloud_consent"] is True
+    assert captured["mineru_token"] == "mt"
+
+
 def test_skip_existing_skips_up_to_date_output(tmp_path, monkeypatch):
     src = tmp_path / "in"
     src.mkdir()

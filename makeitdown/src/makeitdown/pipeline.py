@@ -88,12 +88,17 @@ def convert_tree(
     structurer=None,
     cross_check: bool = False,
     cross_check_ratio: float = 0.1,
+    cross_check_mode: str = "cloud",
+    cloud_consent: bool = False,
+    mineru_token: str | None = None,
 ) -> dict:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     dispatcher = OCRDispatcher(
         engine=ocr_engine, model=ocr_model, token=cloud_token,
         cross_check=cross_check, cross_check_ratio=cross_check_ratio,
+        cross_check_mode=cross_check_mode, cloud_consent=cloud_consent,
+        mineru_token=mineru_token,
     )
 
     report = {
