@@ -181,3 +181,29 @@ def test_cloud_consent_flag_parses():
     args = _build_parser().parse_args(["indir", "--cloud-consent", "--cross-check-mode", "local"])
     assert args.cloud_consent is True
     assert args.cross_check_mode == "local"
+
+
+def test_auto_with_local_available_not_blocked(monkeypatch, tmp_path, capsys):
+    # auto + local installed + no consent → must NOT return 2 (local will run, no upload)
+    import makeitdown.cli as cli
+    monkeypatch.setattr(cli.LocalOCR, "is_available", staticmethod(lambda: True))
+    called = {}
+    monkeypatch.setattr(cli, "convert_tree", lambda *a, **k: called.update({"ran": True}) or {
+        "succeeded": 0, "warned": 0, "failed": 0, "skipped_existing": 0,
+        "skipped_unsupported": 0, "failures": [], "warnings": [], "skipped": []})
+    src = tmp_path / "in"; src.mkdir()
+    rc = cli.main([str(src), "--ocr-engine", "auto"])
+    assert rc == 0 and called.get("ran") is True
+
+
+def test_cloud_verifier_with_consent_prints_upload_notice(monkeypatch, tmp_path, capsys):
+    import makeitdown.cli as cli
+    monkeypatch.setattr(cli.LocalOCR, "is_available", staticmethod(lambda: True))
+    monkeypatch.setattr(cli, "convert_tree", lambda *a, **k: {
+        "succeeded": 0, "warned": 0, "failed": 0, "skipped_existing": 0,
+        "skipped_unsupported": 0, "failures": [], "warnings": [], "skipped": []})
+    src = tmp_path / "in"; src.mkdir()
+    rc = cli.main([str(src), "--ocr-engine", "local", "--ocr-cross-check",
+                   "--cross-check-mode", "cloud", "--cloud-consent"])
+    assert rc == 0
+    assert "上传" in capsys.readouterr().err

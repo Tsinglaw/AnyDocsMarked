@@ -97,7 +97,7 @@ def test_crosscheck_degrades_when_verifier_unavailable(monkeypatch, tmp_path):
     monkeypatch.setattr(d, "_make_verifier", lambda: None)  # no verifier
     result = d.convert(tmp_path / "x.pdf")
     assert result.text == "金额为500000元"          # never lose the conversion
-    assert result.cross_check_reasons == ["双OCR互校跳过：校验引擎 MinerU 不可用"]
+    assert result.cross_check_reasons == ["双OCR互校跳过：无可用 MinerU 校验引擎（装本地版 mineru，或设 MINERU_API_TOKEN 并加 --cloud-consent）"]
 
 
 # ---------------------------------------------------------------------------

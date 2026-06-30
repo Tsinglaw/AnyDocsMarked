@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from .ocr_local import LocalOCR
+from .ocr_mineru import MinerULocal
 from .pipeline import convert_tree
 from .quality import QualityThresholds
 from .structure import HeadingStructurer
@@ -111,15 +113,20 @@ def main(argv: list[str] | None = None) -> int:
 
     from .cloud_consent import CLOUD_NOTICE, has_consent
     mineru_token = os.environ.get("MINERU_API_TOKEN")
-    # Early, friendly gate: if a cloud engine is selected without consent, stop with guidance.
-    cloud_selected = args.ocr_engine in ("cloud", "auto") or (
-        args.ocr_cross_check and args.cross_check_mode in ("cloud", "auto"))
-    if cloud_selected and not has_consent(args.cloud_consent):
+    # Will a cloud engine ACTUALLY run? auto prefers local when available.
+    primary_is_cloud = args.ocr_engine == "cloud" or (
+        args.ocr_engine == "auto" and not LocalOCR.is_available())
+    verifier_is_cloud = args.ocr_cross_check and (
+        args.cross_check_mode == "cloud" or (
+            args.cross_check_mode == "auto" and not MinerULocal.is_available()))
+    cloud_will_run = primary_is_cloud or verifier_is_cloud
+    consented = has_consent(args.cloud_consent)
+    if cloud_will_run and not consented:
         print(CLOUD_NOTICE, file=sys.stderr)
-        if args.ocr_engine in ("cloud", "auto"):
-            # primary needs cloud → cannot proceed without an explicit choice
-            return 2
-    if args.ocr_engine in ("cloud", "auto") and has_consent(args.cloud_consent):
+        if primary_is_cloud:
+            return 2  # primary needs cloud → cannot proceed without consent
+        # verifier-only cloud without consent: the verifier will skip cleanly (no upload); proceed
+    elif cloud_will_run and consented:
         print("使用云端 OCR：文档将上传至云端服务。", file=sys.stderr)
 
     report = convert_tree(

@@ -82,7 +82,7 @@ class MinerUCloud:
                  poll_interval: float = 5.0, request_timeout: float = 60.0,
                  max_poll_seconds: float = 1800.0):
         if not token:
-            raise ValueError("MinerU cloud needs a token (env MINERU_API_TOKEN or --cross-check-token).")
+            raise ValueError("MinerU cloud needs a token (env MINERU_API_TOKEN).")
         self.token = token
         self.model_version = model_version
         self.poll_interval = poll_interval

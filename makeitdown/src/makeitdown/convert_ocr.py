@@ -112,7 +112,7 @@ class OCRDispatcher:
             return result
         verifier = self._make_verifier()
         if verifier is None:
-            result.cross_check_reasons = ["双OCR互校跳过：校验引擎 MinerU 不可用"]
+            result.cross_check_reasons = ["双OCR互校跳过：无可用 MinerU 校验引擎（装本地版 mineru，或设 MINERU_API_TOKEN 并加 --cloud-consent）"]
             return result
         try:
             other = verifier.convert(path)
