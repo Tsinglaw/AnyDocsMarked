@@ -16,8 +16,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("input", help="input directory to scan recursively")
     p.add_argument("-o", "--output", help="output directory (default: <input>_md)")
     p.add_argument("--ocr-engine", choices=["local", "cloud", "auto"], default="cloud",
-                   help="OCR backend (default: cloud — uploads documents; needs --cloud-consent. "
-                        "Use 'local' to keep documents on-device.")
+                   help="OCR backend (default: cloud — uploads documents, needs --cloud-consent; "
+                        "use 'local' to keep documents on-device)")
     p.add_argument("--ocr-model", default=None,
                    help="OCR model; applies to whichever backend runs "
                         "(local default PP-StructureV3, cloud default PaddleOCR-VL-1.6)")

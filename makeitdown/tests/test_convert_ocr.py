@@ -146,3 +146,19 @@ def test_verifier_mode_cloud_builds_with_consent(monkeypatch):
                                   mineru_token="tok")
     v = d._make_verifier()
     assert v is not None and v.engine_label == "mineru-cloud"
+
+
+def test_verifier_cloud_with_token_but_no_consent_never_builds(monkeypatch):
+    # local primary + cross-check on + cloud mode + token present, but NO consent:
+    # the verifier must resolve to None (clean skip) — never construct MinerUCloud.
+    import makeitdown.cloud_consent as cc
+    monkeypatch.setattr(cc.os, "environ", {}, raising=False)  # no env consent
+    d = convert_ocr.OCRDispatcher(
+        engine="local", cross_check=True, cross_check_mode="cloud",
+        cloud_consent=False, mineru_token="a-real-token",
+    )
+    built = {"cloud": False}
+    monkeypatch.setattr(convert_ocr, "MinerUCloud",
+                        lambda *a, **k: built.__setitem__("cloud", True))
+    assert d._make_verifier() is None
+    assert built["cloud"] is False  # MinerUCloud was never constructed → no upload
