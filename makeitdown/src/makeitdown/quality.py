@@ -16,6 +16,7 @@ class QualityThresholds:
     garbled_ratio: float = 0.02
     repeat_count: int = 30
     min_confidence: float = 0.6
+    cross_check_disagreement_ratio: float = 0.1
 
 
 # Punctuation treated as legitimate content, so it never counts as "garbled".

@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from .ocr_local import LocalOCR
+from .ocr_mineru import MinerULocal
 from .pipeline import convert_tree
 from .quality import QualityThresholds
 from .structure import HeadingStructurer
@@ -15,8 +17,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("input", help="input directory to scan recursively")
     p.add_argument("-o", "--output", help="output directory (default: <input>_md)")
-    p.add_argument("--ocr-engine", choices=["local", "cloud", "auto"], default="auto",
-                   help="OCR backend (default: auto = local first, fall back to cloud)")
+    p.add_argument("--ocr-engine", choices=["local", "cloud", "auto"], default="cloud",
+                   help="OCR backend (default: cloud — uploads documents, needs --cloud-consent; "
+                        "use 'local' to keep documents on-device)")
     p.add_argument("--ocr-model", default=None,
                    help="OCR model; applies to whichever backend runs "
                         "(local default PP-StructureV3, cloud default PaddleOCR-VL-1.6)")
@@ -35,6 +38,15 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="keep images extracted from scans (default: text-only output)")
     # Defaults sourced from QualityThresholds so there is one source of truth.
     qt = QualityThresholds()
+    p.add_argument("--ocr-cross-check", action="store_true",
+                   help="run a second OCR engine (MinerU) and flag disagreements "
+                        "(opt-in; default off)")
+    p.add_argument("--cloud-consent", action="store_true",
+                   help="consent to uploading documents to cloud OCR services")
+    p.add_argument("--cross-check-mode", choices=["cloud", "local", "auto"], default="cloud",
+                   help="MinerU verifier mode for --ocr-cross-check (default: cloud)")
+    p.add_argument("--warn-cross-check-ratio", type=float, default=qt.cross_check_disagreement_ratio,
+                   help="warn if dual-OCR disagreement ratio exceeds this (0-1)")
     p.add_argument("--warn-min-chars", type=int, default=qt.min_chars,
                    help="warn if non-whitespace char count is below this")
     p.add_argument("--warn-min-chars-per-page", type=int, default=qt.min_chars_per_page,
@@ -99,6 +111,24 @@ def main(argv: list[str] | None = None) -> int:
             max_heading_ratio=args.llm_max_heading_ratio,
         )
 
+    from .cloud_consent import CLOUD_NOTICE, has_consent
+    mineru_token = os.environ.get("MINERU_API_TOKEN")
+    # Will a cloud engine ACTUALLY run? auto prefers local when available.
+    primary_is_cloud = args.ocr_engine == "cloud" or (
+        args.ocr_engine == "auto" and not LocalOCR.is_available())
+    verifier_is_cloud = args.ocr_cross_check and (
+        args.cross_check_mode == "cloud" or (
+            args.cross_check_mode == "auto" and not MinerULocal.is_available()))
+    cloud_will_run = primary_is_cloud or verifier_is_cloud
+    consented = has_consent(args.cloud_consent)
+    if cloud_will_run and not consented:
+        print(CLOUD_NOTICE, file=sys.stderr)
+        if primary_is_cloud:
+            return 2  # primary needs cloud → cannot proceed without consent
+        # verifier-only cloud without consent: the verifier will skip cleanly (no upload); proceed
+    elif cloud_will_run and consented:
+        print("使用云端 OCR：文档将上传至云端服务。", file=sys.stderr)
+
     report = convert_tree(
         input_dir, output_dir,
         ocr_engine=args.ocr_engine,
@@ -112,6 +142,11 @@ def main(argv: list[str] | None = None) -> int:
         quality_thresholds=thresholds,
         keep_images=args.keep_images,
         structurer=structurer,
+        cross_check=args.ocr_cross_check,
+        cross_check_ratio=args.warn_cross_check_ratio,
+        cross_check_mode=args.cross_check_mode,
+        cloud_consent=args.cloud_consent,
+        mineru_token=mineru_token,
     )
 
     structured = (f"structured={report.get('structured', 0)} "

@@ -68,30 +68,26 @@ makeitdown <输入目录> -o <输出目录>
 
 输出目录默认为 `<输入目录>_md`；`report.json` 默认写入输出目录。
 
-### OCR 后端
+### OCR 后端：云端默认 + 显式同意
 
-| `--ocr-engine` | 说明 |
-|---|---|
-| `auto`（默认） | 本地 PaddleOCR 已安装则用本地，否则在配置了 token 时降级到云端 |
-| `local` | 本地 PaddleOCR PP-StructureV3，需装“本地版”（见上） |
-| `cloud` | PaddleOCR AI Studio 云端 API，需 token |
+makeitdown 默认走**云端 OCR**（开箱即用、无需重型安装），但**绝不静默上传**：必须显式同意才会把文档传到云端服务。
 
-云端 token 从 `--cloud-token` 或环境变量 `PADDLEOCR_AISTUDIO_TOKEN` 读取，**绝不硬编码**：
+- 同意上云：设置 token（`PADDLEOCR_AISTUDIO_TOKEN`）并加 `--cloud-consent`（或环境变量 `MAKEITDOWN_CLOUD_CONSENT=1`）。
+- 不希望上传（本机性能足够）：加 `--ocr-engine local`（需安装本地版），文档不出本机。
 
-```bash
-# PowerShell
-$env:PADDLEOCR_AISTUDIO_TOKEN = "你的token"
-makeitdown docs --ocr-engine cloud
-```
+**双 OCR 互校**（`--ocr-cross-check`，法律高危件用）：用 Paddle + MinerU 两个独立引擎比对，分歧（尤其金额/日期）标记 `quality: suspect`。校验方 MinerU 用 `--cross-check-mode {cloud,local,auto}` 选择：cloud 需 `MINERU_API_TOKEN` + 同意；local 需本机安装 `mineru`；auto 优先本地、否则云端、都没有则干净跳过。
 
 ### 常用选项
 
 | 选项 | 说明 |
 |---|---|
 | `-o, --output DIR` | 输出目录（默认 `<输入>_md`） |
-| `--ocr-engine {auto,local,cloud}` | OCR 后端（默认 auto） |
+| `--ocr-engine {local,cloud,auto}` | OCR 后端（默认 `cloud`） |
+| `--cloud-consent` | 显式同意上传文档到云端（或环境变量 `MAKEITDOWN_CLOUD_CONSENT=1`；必需用 `--ocr-engine cloud`） |
 | `--ocr-model NAME` | 本地模型（默认 `PP-StructureV3`，可选 `PaddleOCR-VL`） |
-| `--cloud-token TOKEN` | 云端 token（默认读环境变量） |
+| `--cloud-token TOKEN` | PaddleOCR 云端 token（默认读环境变量 `PADDLEOCR_AISTUDIO_TOKEN`） |
+| `--ocr-cross-check` | 启用双 OCR 互校（Paddle + MinerU 比对，需可选依赖） |
+| `--cross-check-mode {cloud,local,auto}` | MinerU 互校引擎（默认 `cloud`；cloud 需 `MINERU_API_TOKEN` + 同意；local 需本机安装 `mineru`；auto 优先本地） |
 | `--workers N` | 并发数（默认按 CPU 核数） |
 | `--skip-existing` | 输出比源文件新则跳过（轻量增量） |
 | `--text-threshold N` | PDF 判定为扫描件的每页平均字符数阈值（默认 50） |

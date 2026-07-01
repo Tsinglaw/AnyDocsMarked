@@ -28,10 +28,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-LAWIKI = Path(__file__).resolve().parent.parent          # 本仓库根
-ITEMS = LAWIKI.parent                                     # D:\Vibe Coding Items
-RAG_SRC = ITEMS / "rag-retriever"
-MD_SRC = ITEMS / "makeitdown"
+LAWIKI = Path(__file__).resolve().parent.parent          # lawiki/ 子项目目录
+REPO = LAWIKI.parent                                      # 单仓库根（AnyDocsMarked）
+RAG_SRC = REPO / "rag-retriever"                          # 同仓库的姊妹子项目
+MD_SRC = REPO / "makeitdown"
 
 # 复制时跳过的目录/文件名（按名匹配，任意层级）
 _EXCLUDE = {

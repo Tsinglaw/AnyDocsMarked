@@ -1,5 +1,6 @@
 from pathlib import Path
 import makeitdown.cli as cli
+from makeitdown.cli import _build_parser
 
 
 def test_cli_wires_args_to_convert_tree(tmp_path, monkeypatch):
@@ -15,7 +16,7 @@ def test_cli_wires_args_to_convert_tree(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "convert_tree", fake_convert_tree)
     monkeypatch.delenv("PADDLEOCR_AISTUDIO_TOKEN", raising=False)
 
-    rc = cli.main(["./in", "-o", "./out", "--ocr-engine", "cloud",
+    rc = cli.main(["./in", "-o", "./out", "--ocr-engine", "cloud", "--cloud-consent",
                    "--cloud-token", "TKN", "--workers", "3", "--skip-existing"])
     assert rc == 0
     assert captured["output_dir"] == Path("./out")
@@ -34,11 +35,11 @@ def test_cli_defaults_output_and_reads_token_from_env(tmp_path, monkeypatch):
                          "skipped_unsupported": 0, "failures": [], "warnings": [], "skipped": []})
     monkeypatch.setenv("PADDLEOCR_AISTUDIO_TOKEN", "ENVTKN")
 
-    rc = cli.main(["docs"])
+    rc = cli.main(["docs", "--cloud-consent"])
     assert rc == 0
     assert captured["output_dir"] == Path("docs_md")
     assert captured["cloud_token"] == "ENVTKN"
-    assert captured["ocr_engine"] == "auto"
+    assert captured["ocr_engine"] == "cloud"
 
 
 def _report(**over):
@@ -54,8 +55,8 @@ def test_cli_quality_defaults_and_flags_wired(tmp_path, monkeypatch):
                         lambda input_dir, output_dir, **kw: captured.update(kw) or _report())
     monkeypatch.delenv("PADDLEOCR_AISTUDIO_TOKEN", raising=False)
 
-    # defaults
-    cli.main(["in"])
+    # defaults (use local engine to avoid cloud consent gate)
+    cli.main(["in", "--ocr-engine", "local"])
     assert captured["quality_check"] is True
     assert captured["quality_thresholds"].min_chars == 20
     assert captured["quality_thresholds"].garbled_ratio == 0.02
@@ -63,7 +64,7 @@ def test_cli_quality_defaults_and_flags_wired(tmp_path, monkeypatch):
     assert captured["quality_thresholds"].min_confidence == 0.6
 
     # overrides
-    cli.main(["in", "--no-quality-check", "--warn-min-chars", "5",
+    cli.main(["in", "--ocr-engine", "local", "--no-quality-check", "--warn-min-chars", "5",
               "--warn-min-chars-per-page", "80", "--warn-garbled-ratio", "0.1",
               "--warn-repeat-count", "100", "--warn-min-confidence", "0.7"])
     assert captured["quality_check"] is False
@@ -76,7 +77,7 @@ def test_cli_summary_includes_warned(monkeypatch, capsys):
     monkeypatch.setattr(cli, "convert_tree",
                         lambda input_dir, output_dir, **kw: _report(succeeded=3, warned=2))
     monkeypatch.delenv("PADDLEOCR_AISTUDIO_TOKEN", raising=False)
-    cli.main(["in"])
+    cli.main(["in", "--ocr-engine", "local"])
     out = capsys.readouterr().out
     assert "warned=2" in out
 
@@ -87,7 +88,8 @@ def test_cli_structure_headings_builds_structurer(monkeypatch):
                         lambda input_dir, output_dir, **kw: captured.update(kw) or _report())
     monkeypatch.delenv("PADDLEOCR_AISTUDIO_TOKEN", raising=False)
 
-    rc = cli.main(["in", "--structure-headings", "--llm-base-url", "http://x/v1",
+    rc = cli.main(["in", "--ocr-engine", "local", "--structure-headings",
+                   "--llm-base-url", "http://x/v1",
                    "--llm-model", "deepseek-chat", "--llm-api-key", "K"])
     assert rc == 0
     s = captured["structurer"]
@@ -105,7 +107,7 @@ def test_cli_structure_headings_reads_llm_config_from_env(monkeypatch):
     monkeypatch.setenv("MAKEITDOWN_LLM_MODEL", "qwen")
     monkeypatch.setenv("MAKEITDOWN_LLM_API_KEY", "ENVK")
 
-    cli.main(["in", "--structure-headings"])
+    cli.main(["in", "--ocr-engine", "local", "--structure-headings"])
     assert captured["structurer"].model == "qwen"
 
 
@@ -132,7 +134,7 @@ def test_cli_default_passes_no_structurer(monkeypatch):
     monkeypatch.setattr(cli, "convert_tree",
                         lambda input_dir, output_dir, **kw: captured.update(kw) or _report())
     monkeypatch.delenv("PADDLEOCR_AISTUDIO_TOKEN", raising=False)
-    cli.main(["in"])
+    cli.main(["in", "--ocr-engine", "local"])
     assert captured["structurer"] is None
 
 
@@ -143,8 +145,18 @@ def test_cli_summary_includes_structured_when_enabled(monkeypatch, capsys):
     monkeypatch.setenv("MAKEITDOWN_LLM_BASE_URL", "http://env/v1")
     monkeypatch.setenv("MAKEITDOWN_LLM_MODEL", "qwen")
     monkeypatch.setenv("MAKEITDOWN_LLM_API_KEY", "ENVK")
-    cli.main(["in", "--structure-headings"])
+    cli.main(["in", "--ocr-engine", "local", "--structure-headings"])
     assert "structured=4" in capsys.readouterr().out
+
+
+def test_cross_check_flag_parses():
+    args = _build_parser().parse_args(["indir", "--ocr-cross-check"])
+    assert args.ocr_cross_check is True
+
+
+def test_cross_check_defaults_off():
+    args = _build_parser().parse_args(["indir"])
+    assert args.ocr_cross_check is False
 
 
 def test_cli_notes_actionable_skips(monkeypatch, capsys):
@@ -153,6 +165,45 @@ def test_cli_notes_actionable_skips(monkeypatch, capsys):
                         lambda input_dir, output_dir, **kw: _report(skipped_unsupported=1,
                                                                     skipped=skipped))
     monkeypatch.delenv("PADDLEOCR_AISTUDIO_TOKEN", raising=False)
-    cli.main(["in"])
+    cli.main(["in", "--ocr-engine", "local"])
     err = capsys.readouterr().err
     assert "1 file(s)" in err and "report" in err.lower()
+
+
+def test_ocr_engine_defaults_to_cloud():
+    args = _build_parser().parse_args(["indir"])
+    assert args.ocr_engine == "cloud"
+    assert args.cloud_consent is False
+    assert args.cross_check_mode == "cloud"
+
+
+def test_cloud_consent_flag_parses():
+    args = _build_parser().parse_args(["indir", "--cloud-consent", "--cross-check-mode", "local"])
+    assert args.cloud_consent is True
+    assert args.cross_check_mode == "local"
+
+
+def test_auto_with_local_available_not_blocked(monkeypatch, tmp_path, capsys):
+    # auto + local installed + no consent → must NOT return 2 (local will run, no upload)
+    import makeitdown.cli as cli
+    monkeypatch.setattr(cli.LocalOCR, "is_available", staticmethod(lambda: True))
+    called = {}
+    monkeypatch.setattr(cli, "convert_tree", lambda *a, **k: called.update({"ran": True}) or {
+        "succeeded": 0, "warned": 0, "failed": 0, "skipped_existing": 0,
+        "skipped_unsupported": 0, "failures": [], "warnings": [], "skipped": []})
+    src = tmp_path / "in"; src.mkdir()
+    rc = cli.main([str(src), "--ocr-engine", "auto"])
+    assert rc == 0 and called.get("ran") is True
+
+
+def test_cloud_verifier_with_consent_prints_upload_notice(monkeypatch, tmp_path, capsys):
+    import makeitdown.cli as cli
+    monkeypatch.setattr(cli.LocalOCR, "is_available", staticmethod(lambda: True))
+    monkeypatch.setattr(cli, "convert_tree", lambda *a, **k: {
+        "succeeded": 0, "warned": 0, "failed": 0, "skipped_existing": 0,
+        "skipped_unsupported": 0, "failures": [], "warnings": [], "skipped": []})
+    src = tmp_path / "in"; src.mkdir()
+    rc = cli.main([str(src), "--ocr-engine", "local", "--ocr-cross-check",
+                   "--cross-check-mode", "cloud", "--cloud-consent"])
+    assert rc == 0
+    assert "上传" in capsys.readouterr().err

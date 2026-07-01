@@ -12,6 +12,8 @@ from pathlib import Path
 
 import lancedb
 
+from .tokenize import tokenize_for_fts
+
 _TABLE = "chunks"
 
 
@@ -27,6 +29,14 @@ def _read_json(path: Path, default):
         except (ValueError, OSError):
             return default
     return default
+
+
+def _parse_meta(row: dict) -> dict:
+    """Deserialize a search-result row's stored meta JSON, tolerating absence/corruption."""
+    try:
+        return json.loads(row.get("meta") or "{}")
+    except (ValueError, TypeError):
+        return {}
 
 
 class VectorStore:
@@ -48,13 +58,16 @@ class VectorStore:
         )
 
     def _table(self, dim: int | None = None):
-        if _TABLE in self._db.table_names():
+        # list_tables() (table_names() is deprecated) returns a paginated
+        # response object; .tables is the name list. We only ever hold the one
+        # "chunks" table, so pagination never matters here.
+        if _TABLE in self._db.list_tables().tables:
             return self._db.open_table(_TABLE)
         if dim is None:
             return None
         schema_row = [{
             "id": "seed", "source": "", "ord": 0, "text": "",
-            "meta": "{}", "vector": [0.0] * dim,
+            "text_tokens": "", "meta": "{}", "vector": [0.0] * dim,
         }]
         tbl = self._db.create_table(_TABLE, data=schema_row)
         tbl.delete("id = 'seed'")
@@ -69,13 +82,11 @@ class VectorStore:
 
     def add(
         self, source: str, chunks: list[str], vectors: list[list[float]],
-        meta: dict | None = None,
+        meta: dict | None = None, metas: list[dict] | None = None,
     ) -> int:
         if not chunks:
             return 0
         new_dim = len(vectors[0])
-        # Open the table once: reuse it if it exists (and guard its dimension),
-        # else create it at the new dimension.
         tbl = self._table()
         if tbl is not None:
             existing = tbl.schema.field("vector").type.list_size
@@ -88,16 +99,44 @@ class VectorStore:
                 )
         else:
             tbl = self._table(dim=new_dim)
-        meta_json = json.dumps(meta or {}, ensure_ascii=False)
-        rows = [
-            {"id": f"{source}::{i}", "source": source, "ord": i,
-             "text": chunk, "meta": meta_json, "vector": vec}
-            for i, (chunk, vec) in enumerate(zip(chunks, vectors))
-        ]
+        # Detect whether this table (legacy or new) has the text_tokens column.
+        # Legacy indexes (schema: id/source/ord/text/meta/vector) lack it; new
+        # tables created by _table(dim=...) always include it.  We omit the
+        # field entirely for legacy tables so the row matches their schema.
+        include_tokens = "text_tokens" in tbl.schema.names
+        base_meta = meta or {}
+        rows = []
+        for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+            row_meta = dict(base_meta)
+            if metas and i < len(metas):
+                row_meta.update(metas[i])
+            row = {
+                "id": f"{source}::{i}", "source": source, "ord": i,
+                "text": chunk,
+                "meta": json.dumps(row_meta, ensure_ascii=False),
+                "vector": vec,
+            }
+            if include_tokens:
+                row["text_tokens"] = tokenize_for_fts(chunk)
+            rows.append(row)
         tbl.add(rows)
+        # Note: the FTS index is built once per batch via rebuild_fts(), not here —
+        # building it per file would rebuild the whole index N times during a batch.
         self._manifest[source] = len(rows)
         self._save_manifest()
         return len(rows)
+
+    def rebuild_fts(self) -> None:
+        """(Re)build the full-text index over text_tokens. Best-effort; call once
+        after a batch index, never per row. No-op for legacy tables lacking the column."""
+        tbl = self._table()
+        if tbl is None or "text_tokens" not in tbl.schema.names:
+            return
+        try:
+            tbl.create_fts_index("text_tokens", replace=True)
+        except Exception:
+            # FTS is an optimization; never fail because of it.
+            pass
 
     def search(self, query_vector: list[float], k: int = 5) -> list[dict]:
         tbl = self._table()
@@ -110,16 +149,42 @@ class VectorStore:
         for r in results:
             # LanceDB returns cosine *distance*; similarity = 1 - distance.
             distance = r.get("_distance", 0.0)
-            try:
-                metadata = json.loads(r.get("meta") or "{}")
-            except (ValueError, TypeError):
-                metadata = {}
             out.append({
                 "source": r["source"],
                 "ord": r["ord"],
                 "text": r["text"],
                 "score": round(1.0 - distance, 4),
-                "metadata": metadata,
+                "metadata": _parse_meta(r),
+            })
+        return out
+
+    def has_fts(self) -> bool:
+        tbl = self._table()
+        if tbl is None:
+            return False
+        try:
+            return "text_tokens" in tbl.schema.names
+        except Exception:
+            return False
+
+    def search_text(self, query: str, k: int = 5) -> list[dict]:
+        """BM25 full-text search over pre-tokenized text. [] if unavailable."""
+        tbl = self._table()
+        if tbl is None or "text_tokens" not in tbl.schema.names:
+            return []
+        q = tokenize_for_fts(query)
+        if not q:
+            return []
+        try:
+            results = tbl.search(q, query_type="fts").limit(k).to_list()
+        except Exception:
+            return []
+        out = []
+        for r in results:
+            out.append({
+                "source": r["source"], "ord": r["ord"], "text": r["text"],
+                "score": round(float(r.get("_score", 0.0)), 4),
+                "metadata": _parse_meta(r),
             })
         return out
 
