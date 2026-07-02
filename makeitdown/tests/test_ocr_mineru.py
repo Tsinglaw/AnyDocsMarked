@@ -1,11 +1,13 @@
 from pathlib import Path
 import io
+import subprocess
 import zipfile
 
 import pytest
 
+from makeitdown import ocr_mineru
 from makeitdown.models import ConversionResult
-from makeitdown.ocr_mineru import MinerULocal, read_mineru_markdown, MinerUCloud
+from makeitdown.ocr_mineru import MinerULocal, read_mineru_markdown, MinerUCloud, _safe_extract_zip
 
 
 def test_read_markdown_concatenates_md_files(tmp_path):
@@ -41,6 +43,42 @@ def test_convert_runs_cli_then_reads_markdown(monkeypatch, tmp_path):
     assert isinstance(result, ConversionResult)
     assert "金额五十万元" in result.text
     assert result.engine == "mineru"
+
+
+def test_safe_extract_zip_rejects_zip_slip(tmp_path):
+    # A crafted member escaping the destination via `..` must be rejected.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("../evil.md", "pwned")
+    buf.seek(0)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    with zipfile.ZipFile(buf) as zf:
+        with pytest.raises(RuntimeError, match="zip-slip"):
+            _safe_extract_zip(zf, dest)
+    assert not (tmp_path / "evil.md").exists()  # nothing written outside dest
+
+
+def test_safe_extract_zip_allows_normal_members(tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("scan/auto/scan.md", "ok")
+    buf.seek(0)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    with zipfile.ZipFile(buf) as zf:
+        _safe_extract_zip(zf, dest)
+    assert (dest / "scan" / "auto" / "scan.md").read_text() == "ok"
+
+
+def test_local_run_surfaces_stderr(monkeypatch, tmp_path):
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(returncode=2, cmd="mineru", stderr="model not found detail")
+
+    monkeypatch.setattr(ocr_mineru.subprocess, "run", boom)
+    eng = MinerULocal()
+    with pytest.raises(RuntimeError, match="model not found detail"):
+        eng._run_mineru(tmp_path / "x.pdf", tmp_path)
 
 
 def test_cloud_requires_token():

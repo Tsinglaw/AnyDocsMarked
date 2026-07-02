@@ -32,6 +32,20 @@ def read_mineru_markdown(out_dir: Path) -> tuple[str, int | None]:
     return text, None
 
 
+def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract all members, rejecting any that would escape `dest` (zip-slip).
+
+    The result zip comes from a remote service; a crafted member path
+    (absolute, or containing `..`) could otherwise write outside the temp dir.
+    """
+    dest = dest.resolve()
+    for member in zf.namelist():
+        target = (dest / member).resolve()
+        if target != dest and dest not in target.parents:
+            raise RuntimeError(f"unsafe zip member path (zip-slip): {member!r}")
+    zf.extractall(dest)
+
+
 class MinerULocal:
     """Local MinerU via its CLI: `mineru -p <file> -o <out> -b <backend>`."""
 
@@ -52,11 +66,17 @@ class MinerULocal:
 
         Integration point — verify the flags against the installed mineru version
         (`mineru --help`). As documented: `mineru -p <input> -o <output> -b pipeline`.
+        Surfaces the CLI's stderr on failure so the cause isn't swallowed.
         """
-        subprocess.run(
-            ["mineru", "-p", str(path), "-o", str(out_dir), "-b", self.backend],
-            check=True, capture_output=True,
-        )
+        try:
+            subprocess.run(
+                ["mineru", "-p", str(path), "-o", str(out_dir), "-b", self.backend],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            detail = (e.stderr or e.stdout or "").strip()
+            tail = detail[-500:] if detail else "(no output)"
+            raise RuntimeError(f"mineru CLI failed (exit {e.returncode}): {tail}") from e
 
     def convert(self, path: Path) -> ConversionResult:
         with self._lock, tempfile.TemporaryDirectory() as tmp:
@@ -134,7 +154,7 @@ class MinerUCloud:
         resp.raise_for_status()
         with tempfile.TemporaryDirectory() as tmp:
             with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-                zf.extractall(tmp)
+                _safe_extract_zip(zf, Path(tmp))
             return read_mineru_markdown(Path(tmp))
 
     def convert(self, path: Path) -> ConversionResult:

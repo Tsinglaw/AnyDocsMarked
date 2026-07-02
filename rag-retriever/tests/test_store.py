@@ -16,6 +16,19 @@ def test_search_text_finds_keyword(tmp_path):
     assert "表见代理" in hits[0]["text"]
 
 
+def test_search_text_self_heals_missing_fts_index(tmp_path):
+    # Rows added via a direct add() that bypassed the batch rebuild_fts():
+    # search_text should self-heal (build the FTS index once) and still return hits,
+    # rather than silently degrading to no BM25 results.
+    s = VectorStore(tmp_path)
+    vecs = [[float(i), 0.0, 0.0] for i in range(3)]
+    s.add("doc.md", ["表见代理的构成要件", "无权代理的法律后果", "合同的解除条件"],
+          vecs, metas=[{"heading_path": ""}] * 3)  # note: no rebuild_fts()
+    hits = s.search_text("表见代理", k=3)
+    assert hits, "search_text should self-heal the missing FTS index and return a hit"
+    assert "表见代理" in hits[0]["text"]
+
+
 def test_search_text_empty_on_old_index_without_fts(tmp_path):
     # Simulate an old table without text_tokens/FTS by writing via the legacy path.
     s = VectorStore(tmp_path)

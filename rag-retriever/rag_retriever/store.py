@@ -51,6 +51,9 @@ class VectorStore:
         # can detect "indexed with X, querying with Y" (which silently breaks
         # similarity). Separate sidecar to avoid touching the source manifest.
         self._index_meta_path = data_dir / "index_meta.json"
+        # One-shot guard so search_text self-heals a missing FTS index at most once
+        # (e.g. rows added via a direct add() that bypassed the batch rebuild_fts()).
+        self._fts_heal_attempted = False
 
     def _save_manifest(self) -> None:
         self._manifest_path.write_text(
@@ -167,6 +170,15 @@ class VectorStore:
         except Exception:
             return False
 
+    def _has_fts_index(self, tbl) -> bool:
+        """Whether an FTS index over text_tokens exists (lancedb returns [] rather
+        than erroring when it doesn't, so we must check before relying on it)."""
+        try:
+            return any("text_tokens" in (getattr(i, "columns", None) or [])
+                       for i in tbl.list_indices())
+        except Exception:
+            return False
+
     def search_text(self, query: str, k: int = 5) -> list[dict]:
         """BM25 full-text search over pre-tokenized text. [] if unavailable."""
         tbl = self._table()
@@ -175,6 +187,13 @@ class VectorStore:
         q = tokenize_for_fts(query)
         if not q:
             return []
+        # Self-heal a missing FTS index once — e.g. rows added via a direct add()
+        # that bypassed the batch rebuild_fts(). lancedb returns [] (not an error)
+        # when the index is absent, so detect it proactively rather than on except.
+        if not self._fts_heal_attempted and not self._has_fts_index(tbl):
+            self._fts_heal_attempted = True
+            self.rebuild_fts()
+            tbl = self._table()  # reopen so the freshly-built index is visible
         try:
             results = tbl.search(q, query_type="fts").limit(k).to_list()
         except Exception:
