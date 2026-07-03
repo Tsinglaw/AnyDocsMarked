@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""lawiki bundle 安装器（仅标准库，跨平台）。
+"""AnyDocsMarked bundle 安装器（仅标准库，跨平台）。
 
-随 `lawiki-bundle` 发布，位于 bundle 根目录。agent 在 setup 阶段跑这一条即可
+随 `anydocsmarked` 发布包发布，位于 bundle 根目录。agent 在 setup 阶段跑这一条即可
 把三部分装好：lawiki skill（无需安装，加载即用）、makeitdown（转换器）、
 rag-retriever（RAG 检索）。后两者从 bundle 内 `vendor/` 的源码本地安装。
 

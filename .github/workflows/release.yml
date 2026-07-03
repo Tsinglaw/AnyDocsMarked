@@ -22,18 +22,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # Primary, README-documented artifact: lawiki-bundle-v<version>.zip
-      # (skill + vendored makeitdown/rag-retriever source + install.py).
-      - name: Build lawiki bundle
+      # The single downloadable artifact: anydocsmarked-v<version>.zip
+      # (whole project: skill + vendored makeitdown/rag-retriever source + install.py).
+      - name: Build AnyDocsMarked bundle
         run: python lawiki/scripts/build_bundle.py --version "${GITHUB_REF_NAME#v}"
-      # Secondary: the standalone makeitdown agent bundle, for users who only
-      # want the converter without the lawiki workflow.
-      - name: Build standalone makeitdown agent bundle
-        run: python makeitdown/scripts/build_agent_bundle.py
-      - name: Publish release with both bundles attached
+      - name: Publish release with the bundle attached
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            lawiki/dist/lawiki-bundle-*.zip
-            makeitdown/dist/makeitdown-agent.zip
+            lawiki/dist/anydocsmarked-*.zip
           generate_release_notes: true

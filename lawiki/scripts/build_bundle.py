@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""组装 lawiki-bundle 发布包（仅标准库）。
+"""组装 anydocsmarked 发布包（仅标准库）。
 
 把三部分的**源码**当场从本地权威仓库复制进一个自包含 zip（每次发版重新
 vendor 最新源码，避免副本陈旧）：
 
-  lawiki-bundle-v<版本>.zip
+  anydocsmarked-v<版本>.zip
   ├── skill/lawiki/          # agent 加载的 skill
   ├── vendor/rag-retriever/  # 源码 + LICENSE
   ├── vendor/makeitdown/     # 源码 + LICENSE
@@ -74,11 +74,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--version", default="1.0.0")
     args = ap.parse_args(argv[1:])
 
-    out_zip = LAWIKI / "dist" / f"lawiki-bundle-v{args.version}.zip"
+    out_zip = LAWIKI / "dist" / f"anydocsmarked-v{args.version}.zip"
     out_zip.parent.mkdir(exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / f"lawiki-bundle-v{args.version}"
+        root = Path(tmp) / f"anydocsmarked-v{args.version}"
         root.mkdir()
 
         # 1) skill
@@ -91,7 +91,7 @@ def main(argv: list[str]) -> int:
 
         # 4) MANIFEST（溯源三部分的 commit）
         (root / "MANIFEST.txt").write_text(
-            f"lawiki-bundle v{args.version}\n"
+            f"anydocsmarked v{args.version}\n"
             f"lawiki        {_git_head(LAWIKI)}\n"
             f"rag-retriever {_git_head(RAG_SRC)}\n"
             f"makeitdown    {_git_head(MD_SRC)}\n",
@@ -99,7 +99,7 @@ def main(argv: list[str]) -> int:
 
         # 5) README
         (root / "README.txt").write_text(
-            "lawiki bundle —— 法律案件资料整理 + 交叉验证问答\n\n"
+            "AnyDocsMarked —— 法律案件资料整理 + 交叉验证问答\n\n"
             "用法：\n"
             "1. 解压本包。\n"
             "2. 让你的 AI agent 加载 skill/lawiki（Claude Code/Copilot 自动识别 SKILL.md；\n"
