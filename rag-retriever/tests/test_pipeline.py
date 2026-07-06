@@ -76,7 +76,7 @@ def test_search_falls_back_to_vector_when_no_fts(monkeypatch, tmp_path):
     assert hits and hits[0]["text"] == "hit"
 
 
-def test_search_passes_source_prefix_to_store(monkeypatch, tmp_path):
+def test_search_passes_source_prefix_to_store(tmp_path):
     cfg = Config.load()
     cfg = type(cfg)(**{**cfg.__dict__, "data_dir": tmp_path, "hybrid": True})
     r = pipeline_mod.Retriever(cfg)
@@ -94,10 +94,12 @@ def test_search_passes_source_prefix_to_store(monkeypatch, tmp_path):
     r.store = _S()
     r.search("query", k=3, source_prefix="caseA/")
     assert seen["vec"] == "caseA/"
+    assert seen["fts"] == "caseA/"
     # empty prefix is normalized to None (full-index search)
     seen.clear()
     r.search("query", k=3, source_prefix="   ")
     assert seen["vec"] is None
+    assert seen["fts"] is None
 
 
 def test_index_file_stores_heading_path_in_meta(monkeypatch, tmp_path):
