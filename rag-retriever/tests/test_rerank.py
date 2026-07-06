@@ -12,3 +12,14 @@ def test_default_rerank_is_none(monkeypatch):
     cfg = Config.load()
     assert cfg.rerank == "none"
     assert get_reranker(cfg) is None
+
+
+def test_default_rerank_model_is_multilingual(monkeypatch):
+    monkeypatch.delenv("RAG_RERANK_MODEL", raising=False)
+    cfg = Config.load()
+    assert cfg.rerank_model == "BAAI/bge-reranker-v2-m3"
+
+
+def test_rerank_default_stays_off(monkeypatch):
+    monkeypatch.delenv("RAG_RERANK", raising=False)
+    assert get_reranker(Config.load()) is None

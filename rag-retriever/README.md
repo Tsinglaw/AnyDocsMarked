@@ -55,7 +55,7 @@ cp .env.example .env   # then pick your embedding backend
 | `RAG_HYBRID` | `1` | BM25+vector RRF; `0` for pure vector |
 | `RAG_RRF_K` | `60` | RRF constant |
 | `RAG_HYBRID_CANDIDATES` | `50` | per-channel candidate pool before fusion |
-| `RAG_RERANK` | `none` | `none` (zero-model) / `local` (fastembed cross-encoder) / `cloud` |
+| `RAG_RERANK` | `none` | `none` (zero-model) / `local` (fastembed multilingual cross-encoder `BAAI/bge-reranker-v2-m3`, suitable for Chinese) / `cloud` |
 
 ### Retrieval quality
 

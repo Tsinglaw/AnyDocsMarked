@@ -76,6 +76,10 @@ class Config:
     chunk_tokens: int
     chunk_overlap: int
 
+    # Optional path to a locally vendored copy of the local model's ONNX files.
+    # Empty = auto-detect the release-bundled copy (or download if absent).
+    embed_model_path: str = ""
+
     # frontmatter fields to carry through as per-hit metadata (domain-agnostic).
     # Empty = none. The retriever does not interpret these; callers do.
     metadata_fields: tuple[str, ...] = ()
@@ -96,8 +100,10 @@ class Config:
 
     # optional cross-encoder rerank: "none" (default) | "local" | "cloud"
     rerank: str = "none"
-    # cross-encoder model used when rerank == "local" (only loaded then)
-    rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    # cross-encoder model used when rerank == "local" (only loaded then).
+    # Multilingual (same family as bge-m3 embeddings) so Chinese legal terms
+    # rerank meaningfully; the English ms-marco default did not.
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
     @classmethod
     def load(cls) -> "Config":
@@ -111,6 +117,7 @@ class Config:
         return cls(
             embed_backend=backend,
             embed_model=model,
+            embed_model_path=_env("RAG_EMBED_MODEL_PATH", ""),
             ollama_url=_env("RAG_OLLAMA_URL", "http://localhost:11434"),
             openai_base_url=_env("RAG_OPENAI_BASE_URL", "https://api.siliconflow.cn/v1"),
             openai_api_key=_env("RAG_OPENAI_API_KEY", ""),
@@ -124,5 +131,5 @@ class Config:
             rrf_k=_env_int("RAG_RRF_K", 60),
             hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
             rerank=_env("RAG_RERANK", "none").lower(),
-            rerank_model=_env("RAG_RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2"),
+            rerank_model=_env("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
         )
