@@ -21,6 +21,12 @@ def _escape(value: str) -> str:
     return value.replace("'", "''")
 
 
+def _source_prefix_where(prefix: str) -> str:
+    """SQL predicate matching rows whose `source` starts with `prefix` (literal).
+    Used as a LanceDB prefilter to scope search to a case dir / doc-type subtree."""
+    return f"starts_with(source, '{_escape(prefix)}')"
+
+
 def _read_json(path: Path, default):
     """Read a JSON file, returning `default` if it's missing or unreadable."""
     if path.exists():
@@ -141,13 +147,15 @@ class VectorStore:
             # FTS is an optimization; never fail because of it.
             pass
 
-    def search(self, query_vector: list[float], k: int = 5) -> list[dict]:
+    def search(self, query_vector: list[float], k: int = 5,
+               source_prefix: str | None = None) -> list[dict]:
         tbl = self._table()
         if tbl is None:
             return []
-        results = (
-            tbl.search(query_vector).metric("cosine").limit(k).to_list()
-        )
+        q = tbl.search(query_vector).metric("cosine")
+        if source_prefix:
+            q = q.where(_source_prefix_where(source_prefix), prefilter=True)
+        results = q.limit(k).to_list()
         out = []
         for r in results:
             # LanceDB returns cosine *distance*; similarity = 1 - distance.
@@ -179,7 +187,8 @@ class VectorStore:
         except Exception:
             return False
 
-    def search_text(self, query: str, k: int = 5) -> list[dict]:
+    def search_text(self, query: str, k: int = 5,
+                    source_prefix: str | None = None) -> list[dict]:
         """BM25 full-text search over pre-tokenized text. [] if unavailable."""
         tbl = self._table()
         if tbl is None or "text_tokens" not in tbl.schema.names:
@@ -195,7 +204,10 @@ class VectorStore:
             self.rebuild_fts()
             tbl = self._table()  # reopen so the freshly-built index is visible
         try:
-            results = tbl.search(q, query_type="fts").limit(k).to_list()
+            s = tbl.search(q, query_type="fts")
+            if source_prefix:
+                s = s.where(_source_prefix_where(source_prefix), prefilter=True)
+            results = s.limit(k).to_list()
         except Exception:
             return []
         out = []

@@ -57,3 +57,31 @@ def test_add_into_legacy_table_without_text_tokens(tmp_path):
     assert s.has_fts() is False          # legacy table has no FTS column
     assert s.search_text("合同", k=3) == []  # search_text falls back to empty
     assert s.count() == 1               # the row was actually written
+
+
+def test_search_filters_by_source_prefix(tmp_path):
+    # explicit non-zero vectors — cosine similarity is undefined on zero vectors.
+    s = VectorStore(tmp_path)
+    s.add("caseA/合同.md", ["表见代理的构成要件"], [[1.0, 0.0, 0.0]],
+          metas=[{"heading_path": ""}])
+    s.add("caseB/判决.md", ["无权代理的法律后果"], [[0.0, 1.0, 0.0]],
+          metas=[{"heading_path": ""}])
+    hits = s.search([1.0, 0.0, 0.0], k=5, source_prefix="caseA/")
+    assert hits, "expected at least one hit within caseA/"
+    assert all(h["source"].startswith("caseA/") for h in hits)
+
+
+def test_search_text_filters_by_source_prefix(tmp_path):
+    s = VectorStore(tmp_path)
+    _add(s, "caseA/合同.md", ["表见代理的构成要件"])
+    _add(s, "caseB/判决.md", ["表见代理的其他表述"])
+    hits = s.search_text("表见代理", k=5, source_prefix="caseB/")
+    assert hits, "expected a BM25 hit within caseB/"
+    assert all(h["source"].startswith("caseB/") for h in hits)
+
+
+def test_search_no_prefix_unchanged(tmp_path):
+    s = VectorStore(tmp_path)
+    s.add("caseA/合同.md", ["表见代理"], [[1.0, 0.0, 0.0]], metas=[{"heading_path": ""}])
+    s.add("caseB/判决.md", ["无权代理"], [[0.0, 1.0, 0.0]], metas=[{"heading_path": ""}])
+    assert len(s.search([1.0, 0.0, 0.0], k=5)) == 2
