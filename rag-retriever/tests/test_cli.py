@@ -18,6 +18,7 @@ class FakeRetriever:
 
     last_cfg = None
     last_index: dict = {}
+    last_search: dict = {}
 
     def __init__(self, cfg=None):
         FakeRetriever.last_cfg = cfg
@@ -32,7 +33,8 @@ class FakeRetriever:
             "files_skipped": 0, "total_chunks": 0, "skipped": [],
         }
 
-    def search(self, query, k=5):
+    def search(self, query, k=5, source_prefix=None):
+        FakeRetriever.last_search = {"query": query, "k": k, "source_prefix": source_prefix}
         return [{"source": "_md/a.md", "ord": 0, "text": "命中原文", "score": 0.5}]
 
     def list_sources(self):
@@ -94,3 +96,15 @@ def test_doctor_without_fix_defaults_false(monkeypatch, capsys):
     _run(monkeypatch, ["rag-retriever", "doctor"])
     assert FakeRetriever.last_index == {"doctor_fix": False}
     capsys.readouterr()
+
+
+def test_search_filter_flag_reaches_retriever(monkeypatch, capsys):
+    _run(monkeypatch, ["rag-retriever", "search", "表见代理", "--filter", "caseA/", "--json"])
+    capsys.readouterr()
+    assert FakeRetriever.last_search["source_prefix"] == "caseA/"
+
+
+def test_search_without_filter_defaults_none(monkeypatch, capsys):
+    _run(monkeypatch, ["rag-retriever", "search", "表见代理", "--json"])
+    capsys.readouterr()
+    assert FakeRetriever.last_search["source_prefix"] is None

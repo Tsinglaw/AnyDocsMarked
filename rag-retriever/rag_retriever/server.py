@@ -61,11 +61,14 @@ def index_path(
 
 
 @mcp.tool()
-def search(query: str, k: int = 5) -> str:
+def search(query: str, k: int = 5, source_prefix: str = "") -> str:
     """Search the indexed documents for passages relevant to `query` and return the
     top `k` chunks (with source path and similarity score). Use these passages as
-    grounding to answer the user's question yourself — this tool does NOT answer."""
-    hits = retriever().search(query, k=k)
+    grounding to answer the user's question yourself — this tool does NOT answer.
+
+    Optional source_prefix scopes the search to sources under that path prefix
+    (e.g. a single case directory), for multi-case isolation."""
+    hits = retriever().search(query, k=k, source_prefix=source_prefix or None)
     if not hits:
         return "No relevant passages found (is anything indexed yet? run index_path first)."
     parts = []

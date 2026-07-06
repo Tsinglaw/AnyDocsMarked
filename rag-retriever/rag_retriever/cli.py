@@ -59,6 +59,10 @@ def main() -> None:
         "--json", action="store_true",
         help="emit hits as a JSON array (for programmatic consumers)",
     )
+    p_search.add_argument(
+        "--filter", dest="source_prefix", default=None,
+        help="scope search to sources under this path prefix (e.g. a case dir)",
+    )
 
     sub.add_parser("list", help="list indexed documents")
     sub.add_parser("stats", help="show status")
@@ -87,7 +91,7 @@ def main() -> None:
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.cmd == "search":
-        hits = r.search(args.query, k=args.k)
+        hits = r.search(args.query, k=args.k, source_prefix=args.source_prefix)
         if args.json:
             print(json.dumps(hits, ensure_ascii=False, indent=2))
             return
