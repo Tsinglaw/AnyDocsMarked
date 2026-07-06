@@ -129,17 +129,20 @@ class Retriever:
             "skipped": skipped,
         }
 
-    def search(self, query: str, k: int = 5) -> list[dict]:
+    def search(self, query: str, k: int = 5,
+               source_prefix: str | None = None) -> list[dict]:
         """Top-k relevant chunks. Hybrid (BM25+vector RRF) when enabled and FTS
-        is available; otherwise pure vector. No answer generation."""
+        is available; otherwise pure vector. Optional source_prefix scopes the
+        search to sources under that path prefix. No answer generation."""
         if not query.strip():
             return []
+        sp = (source_prefix or "").strip() or None
         qvec = self.embedder.embed_query(query)
         if not self.cfg.hybrid:
-            return self.store.search(qvec, k=k)
+            return self.store.search(qvec, k=k, source_prefix=sp)
         cand = max(k, self.cfg.hybrid_candidates)
-        vector_hits = self.store.search(qvec, k=cand)
-        text_hits = self.store.search_text(query, k=cand)
+        vector_hits = self.store.search(qvec, k=cand, source_prefix=sp)
+        text_hits = self.store.search_text(query, k=cand, source_prefix=sp)
         if text_hits:
             fused = _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, cand)
         else:

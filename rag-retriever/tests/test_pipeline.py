@@ -66,14 +66,38 @@ def test_search_falls_back_to_vector_when_no_fts(monkeypatch, tmp_path):
     r._embedder = _FakeEmbedder()
 
     class _S:
-        def search(self, vec, k):
+        def search(self, vec, k, source_prefix=None):
             return [{"source": "d", "ord": 0, "text": "hit", "score": 0.5, "metadata": {}}]
-        def search_text(self, q, k):
+        def search_text(self, q, k, source_prefix=None):
             return []  # no FTS
 
     r.store = _S()
     hits = r.search("query", k=3)
     assert hits and hits[0]["text"] == "hit"
+
+
+def test_search_passes_source_prefix_to_store(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg = type(cfg)(**{**cfg.__dict__, "data_dir": tmp_path, "hybrid": True})
+    r = pipeline_mod.Retriever(cfg)
+    r._embedder = _FakeEmbedder()
+    seen = {}
+
+    class _S:
+        def search(self, vec, k, source_prefix=None):
+            seen["vec"] = source_prefix
+            return [{"source": "caseA/x", "ord": 0, "text": "hit", "score": 0.5, "metadata": {}}]
+        def search_text(self, q, k, source_prefix=None):
+            seen["fts"] = source_prefix
+            return []
+
+    r.store = _S()
+    r.search("query", k=3, source_prefix="caseA/")
+    assert seen["vec"] == "caseA/"
+    # empty prefix is normalized to None (full-index search)
+    seen.clear()
+    r.search("query", k=3, source_prefix="   ")
+    assert seen["vec"] is None
 
 
 def test_index_file_stores_heading_path_in_meta(monkeypatch, tmp_path):
