@@ -29,23 +29,17 @@
 
 **Interfaces:**
 - Consumes: nothing from other tasks.
-- Produces: `Config.rerank_model` default value = `"BAAI/bge-reranker-v2-m3"` (or the verified fallback). No signature change.
+- Produces: `Config.rerank_model` default value = `"BAAI/bge-reranker-v2-m3"`. No signature change.
 
-- [ ] **Step 1: Verify fastembed supports the target model (gate — do this first)**
+**Note — verification deferred (by decision):** the reranker is default-off
+(`RAG_RERANK=none`), so this model id is never loaded unless a user explicitly
+opts into `RAG_RERANK=local`. We are NOT doing the live
+`TextCrossEncoder.list_supported_models()` check now. If a user later opts in
+and fastembed does not support `BAAI/bge-reranker-v2-m3`, the fallback is
+`jinaai/jina-reranker-v2-base-multilingual` — revisit then. Task 1's tests only
+exercise config parsing, so they stay fully offline.
 
-In an environment with `fastembed` installed (`uv tool install "rag-retriever[local] @ ..."` or `pip install fastembed`), run:
-
-```bash
-python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; print([m['model'] for m in TextCrossEncoder.list_supported_models()])"
-```
-
-Expected: the printed list contains `BAAI/bge-reranker-v2-m3`.
-- If present → use `BAAI/bge-reranker-v2-m3` in every step below.
-- If absent → use `jinaai/jina-reranker-v2-base-multilingual` instead (also multilingual, also fastembed-supported). Use that exact id everywhere below.
-
-Record which id you're using; the rest of Task 1 refers to it as `<MODEL>`.
-
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 1: Write the failing test**
 
 Add to `rag-retriever/tests/test_rerank.py`:
 
@@ -61,15 +55,14 @@ def test_rerank_default_stays_off(monkeypatch):
     assert get_reranker(Config.load()) is None
 ```
 
-(If Step 1 selected the fallback, use that id in the first assertion instead.)
 Ensure the file imports `Config` and `get_reranker` — the existing top of `test_rerank.py` already imports `get_reranker`; add `from rag_retriever.config import Config` if not present.
 
-- [ ] **Step 3: Run tests to verify the first fails**
+- [ ] **Step 2: Run tests to verify the first fails**
 
 Run: `pytest tests/test_rerank.py -v`
 Expected: `test_default_rerank_model_is_multilingual` FAILS (asserts `Xenova/...` != `BAAI/...`); `test_rerank_default_stays_off` PASSES.
 
-- [ ] **Step 4: Make the change**
+- [ ] **Step 3: Make the change**
 
 In `rag-retriever/rag_retriever/config.py`, line 104:
 
@@ -86,16 +79,16 @@ And line 132 (inside `load()`):
             rerank_model=_env("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
 ```
 
-- [ ] **Step 5: Update the README line**
+- [ ] **Step 4: Update the README line**
 
 In `rag-retriever/README.md`, the `RAG_RERANK` row/description: note that `local` now loads a multilingual cross-encoder (`BAAI/bge-reranker-v2-m3`) suitable for Chinese, and that it remains **off by default** (offline, zero-model).
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_rerank.py -v`
 Expected: both tests PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add rag-retriever/rag_retriever/config.py rag-retriever/README.md rag-retriever/tests/test_rerank.py
@@ -439,5 +432,5 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Notes for the implementer
 
 - Run all commands from the `rag-retriever/` subdirectory (that's where `pytest`/the package live).
-- Task 1 Step 1 is a hard gate: do not hardcode `bge-reranker-v2-m3` before confirming fastembed lists it; use the fallback id everywhere if it doesn't.
+- Live fastembed model verification is intentionally deferred (reranker is default-off); just set the default id. Revisit only if a user opts into `RAG_RERANK=local`.
 - Tasks 2→3→4 are ordered by dependency (store → pipeline → surface). Task 1 is independent and can go first or last.
