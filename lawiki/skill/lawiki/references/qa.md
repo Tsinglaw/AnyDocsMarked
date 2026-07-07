@@ -23,6 +23,12 @@
 **各路互补不同漏检，不可只凭一边。**
 
 1. **wiki 路**：读 `wiki/index.md` → 顺 `[[wikilink]]`/grep 找相关页 → 取其**已综合结论 + 既有锚点**。
+   - **关系/多跳问题**（"X 与 Y 有无关系""X 牵涉哪些事实/关系"）用确定性图工具，替代人肉追链：
+     ```
+     python <SKILL_DIR>/tools/graph.py <案件根> neighbors "<页名>"
+     python <SKILL_DIR>/tools/graph.py <案件根> path "<A>" "<B>"
+     ```
+     只走 wiki 中已存在、经 lint 校验的 `[[wikilink]]`（导航页/时间线不入图），返回邻居或最短连通路径；拿到路径后仍读沿途页锚点取证。零依赖、始终可用。
 2. **RAG 路**：
    ```
    python <SKILL_DIR>/tools/rag.py search <案件根> "<问题>" -k 8

@@ -118,3 +118,35 @@ def find_path(graph: dict, a: str, b: str) -> dict:
     seq.reverse()
     return {"from": sa, "to": sb, "connected": True, "hops": len(seq) - 1,
             "path": [{"page": s, "类型": graph["nodes"][s]} for s in seq]}
+
+
+def main(argv: list[str]) -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Windows 重定向默认 GBK
+    except Exception:
+        pass
+    usage = ('用法:\n'
+             '  python graph.py <案件根> neighbors "<页名或别名>"\n'
+             '  python graph.py <案件根> path "<A>" "<B>"')
+    if len(argv) < 3:
+        print(usage, file=sys.stderr)
+        return 2
+    root, cmd = argv[1], argv[2]
+    g = build_graph(root)
+    if g is None:
+        print(json.dumps({"error": f"未找到 wiki 目录: {root}/wiki"},
+                         ensure_ascii=False, indent=2))
+        return 1
+    if cmd == "neighbors" and len(argv) == 4:
+        result = neighbors(g, argv[3])
+    elif cmd == "path" and len(argv) == 5:
+        result = find_path(g, argv[3], argv[4])
+    else:
+        print(usage, file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 1 if "error" in result else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

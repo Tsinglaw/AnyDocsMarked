@@ -140,5 +140,52 @@ class PathTests(unittest.TestCase):
         self.assertIn("error", graph.find_path(g, "甲", "不存在"))
 
 
+import io
+import contextlib
+
+
+class MainTests(unittest.TestCase):
+    def _root(self):
+        d = tempfile.mkdtemp()
+        _make_wiki(Path(d))
+        return d
+
+    def _run(self, argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = graph.main(argv)
+        return code, buf.getvalue()
+
+    def test_cli_path_ok_exit_zero(self):
+        code, out = self._run(["graph.py", self._root(), "path", "甲", "丙"])
+        self.assertEqual(code, 0)
+        self.assertIn('"connected": true', out)
+
+    def test_cli_neighbors_ok(self):
+        code, out = self._run(["graph.py", self._root(), "neighbors", "晨山"])
+        self.assertEqual(code, 0)
+        self.assertIn("借款事实", out)
+
+    def test_cli_disconnected_is_exit_zero(self):
+        code, out = self._run(["graph.py", self._root(), "path", "甲", "北京晨山"])
+        self.assertEqual(code, 0)               # a valid answer, not an error
+        self.assertIn('"connected": false', out)
+
+    def test_cli_unknown_page_exit_nonzero(self):
+        code, out = self._run(["graph.py", self._root(), "neighbors", "没有这页"])
+        self.assertEqual(code, 1)
+        self.assertIn("error", out)
+
+    def test_cli_missing_wiki_exit_one(self):
+        d = tempfile.mkdtemp()                  # no wiki/
+        code, out = self._run(["graph.py", d, "neighbors", "甲"])
+        self.assertEqual(code, 1)
+        self.assertIn("error", out)
+
+    def test_cli_bad_args_exit_two(self):
+        code, _ = self._run(["graph.py", self._root(), "path", "甲"])  # path needs 2
+        self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
