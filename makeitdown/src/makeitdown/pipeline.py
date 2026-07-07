@@ -23,7 +23,8 @@ def _is_up_to_date(src: Path, md: Path) -> bool:
 
 
 _IMG_HTML_RE = re.compile(r"<img\b[^>]*?>", re.IGNORECASE)
-_IMG_MD_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_IMG_MD_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
+_IMG_SRC_RE = re.compile(r"""src\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _EMPTY_DIV_RE = re.compile(r"<div\b[^>]*>\s*</div>", re.IGNORECASE)
 
 
@@ -39,6 +40,46 @@ def _strip_images(text: str) -> str:
         prev = text
         text = _EMPTY_DIV_RE.sub("", text)
     return text
+
+
+def _image_marker(name: str) -> str:
+    return f"〔图像：{name} —— 已省略未保留，请查原件〕"
+
+
+def _basename_or(path: str, alt: str) -> str:
+    """Filename handle for the marker: basename of path, else alt, else 未命名."""
+    if path:
+        base = path.replace("\\", "/").rsplit("/", 1)[-1].strip()
+        if base:
+            return base
+    alt = (alt or "").strip()
+    return alt or "未命名"
+
+
+def _mark_images(text: str) -> tuple[str, int]:
+    """Replace image references with a traceable placeholder marker instead of
+    deleting them, so _md records that an image existed (and its filename) even
+    when the bytes are not kept. Returns (marked_text, n_marked)."""
+    count = 0
+
+    def _md_sub(m: "re.Match[str]") -> str:
+        nonlocal count
+        count += 1
+        return _image_marker(_basename_or(m.group(2), m.group(1)))
+
+    def _html_sub(m: "re.Match[str]") -> str:
+        nonlocal count
+        count += 1
+        src_m = _IMG_SRC_RE.search(m.group(0))
+        return _image_marker(_basename_or(src_m.group(1) if src_m else "", ""))
+
+    text = _IMG_MD_RE.sub(_md_sub, text)
+    text = _IMG_HTML_RE.sub(_html_sub, text)
+    prev = None
+    while prev != text:
+        prev = text
+        text = _EMPTY_DIV_RE.sub("", text)
+    return text, count
 
 
 def _is_safe_asset_rel(rel: str) -> bool:

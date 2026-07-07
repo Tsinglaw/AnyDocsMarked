@@ -262,6 +262,34 @@ def test_strip_images_helper():
     assert "text-align: center;\"></div>" not in out  # emptied seal div collapsed
 
 
+def test_mark_images_helper():
+    from makeitdown.pipeline import _mark_images
+    t = ('正文 <img src="imgs/seal.jpg" alt="Image"> 中间 ![cap](pic.png) 末尾 '
+         '<div style="text-align: center;"><table>keep</table></div>')
+    out, n = _mark_images(t)
+    assert "<img" not in out
+    assert "![" not in out
+    assert "imgs/seal.jpg" not in out            # full path gone
+    assert "〔图像：seal.jpg" in out               # html <img> -> marker by basename
+    assert "〔图像：pic.png" in out                # md ![]() -> marker by basename
+    assert "<table>keep</table>" in out           # table content preserved
+    assert n == 2
+
+
+def test_mark_images_falls_back_to_alt_then_placeholder():
+    from makeitdown.pipeline import _mark_images
+    out1, n1 = _mark_images("![说明]()")           # alt present, no path
+    assert "〔图像：说明" in out1 and n1 == 1
+    out2, n2 = _mark_images("<img>")               # no src attribute
+    assert "〔图像：未命名" in out2 and n2 == 1
+
+
+def test_mark_images_collapses_genuinely_empty_div():
+    from makeitdown.pipeline import _mark_images
+    out, n = _mark_images('<div style="x"></div>正文')   # empty for non-image reasons
+    assert "<div" not in out and n == 0
+
+
 def test_images_stripped_by_default(tmp_path, monkeypatch):
     src = tmp_path / "in"
     src.mkdir()
