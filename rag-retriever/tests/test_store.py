@@ -71,6 +71,18 @@ def test_search_filters_by_source_prefix(tmp_path):
     assert all(h["source"].startswith("caseA/") for h in hits)
 
 
+def test_search_prefix_with_single_quote_is_escaped(tmp_path):
+    # A prefix containing a single quote must not break/inject the where clause.
+    s = VectorStore(tmp_path)
+    s.add("it's a trap/doc.md", ["text"], [[1.0, 0.0, 0.0]],
+          metas=[{"heading_path": ""}])
+    s.add("other/doc.md", ["text"], [[0.0, 1.0, 0.0]],
+          metas=[{"heading_path": ""}])
+    hits = s.search([1.0, 0.0, 0.0], k=5, source_prefix="it's a trap/")
+    assert hits, "quote-containing prefix should still match, not error"
+    assert all(h["source"].startswith("it's a trap/") for h in hits)
+
+
 def test_search_text_filters_by_source_prefix(tmp_path):
     s = VectorStore(tmp_path)
     _add(s, "caseA/合同.md", ["表见代理的构成要件"])

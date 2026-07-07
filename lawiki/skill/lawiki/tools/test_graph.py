@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """graph.py 回归测试（stdlib unittest，零依赖，任何 python 可跑）。"""
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -138,10 +140,6 @@ class PathTests(unittest.TestCase):
     def test_path_unknown_page_errors(self):
         g = self._graph()
         self.assertIn("error", graph.find_path(g, "甲", "不存在"))
-
-
-import io
-import contextlib
 
 
 class MainTests(unittest.TestCase):

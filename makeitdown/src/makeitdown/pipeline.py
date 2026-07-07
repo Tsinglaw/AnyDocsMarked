@@ -25,6 +25,7 @@ def _is_up_to_date(src: Path, md: Path) -> bool:
 _IMG_HTML_RE = re.compile(r"<img\b[^>]*?>", re.IGNORECASE)
 _IMG_MD_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
 _IMG_SRC_RE = re.compile(r"""src\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_IMG_ALT_RE = re.compile(r"""alt\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _EMPTY_DIV_RE = re.compile(r"<div\b[^>]*>\s*</div>", re.IGNORECASE)
 
 
@@ -57,7 +58,10 @@ def _mark_images(text: str) -> tuple[str, int]:
         nonlocal count
         count += 1
         src_m = _IMG_SRC_RE.search(m.group(0))
-        return _image_marker(_basename_or(src_m.group(1) if src_m else "", ""))
+        alt_m = _IMG_ALT_RE.search(m.group(0))
+        return _image_marker(_basename_or(
+            src_m.group(1) if src_m else "",
+            alt_m.group(1) if alt_m else ""))
 
     text = _IMG_MD_RE.sub(_md_sub, text)
     text = _IMG_HTML_RE.sub(_html_sub, text)

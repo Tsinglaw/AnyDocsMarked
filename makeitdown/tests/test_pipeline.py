@@ -249,8 +249,6 @@ def test_unsafe_asset_paths_are_skipped(tmp_path, monkeypatch):
     assert not (tmp_path / "evil2.png").exists()                  # a/../../ escape blocked
 
 
-
-
 def test_mark_images_helper():
     from makeitdown.pipeline import _mark_images
     t = ('正文 <img src="imgs/seal.jpg" alt="Image"> 中间 ![cap](pic.png) 末尾 '
@@ -263,6 +261,13 @@ def test_mark_images_helper():
     assert "〔图像：pic.png" in out                # md ![]() -> marker by basename
     assert "<table>keep</table>" in out           # table content preserved
     assert n == 2
+
+
+def test_mark_images_html_alt_fallback_when_no_src():
+    from makeitdown.pipeline import _mark_images
+    out, n = _mark_images('<img alt="现场照片">')   # HTML img, alt but no src
+    assert "〔图像：现场照片" in out                  # falls back to alt, not 未命名
+    assert n == 1
 
 
 def test_mark_images_falls_back_to_alt_then_placeholder():
