@@ -23,7 +23,7 @@ If that succeeds, skip ahead to **Usage**. If the command is not found, install 
 
 ### Step 1 — Let the user choose an edition
 
-There are two editions. **Do not pick for the user** — present both neutrally and ask which they want. Relay this comparison in plain language (Chinese if the user writes Chinese):
+There are two editions. **Always tell the user both exist and let them choose** — never install one silently. **Cloud is the default** (lightweight, nothing heavy to install, but the document is uploaded); **Local is the offline/private alternative** (nothing leaves the machine). Recommend Cloud for most users, but make clear Local is available for sensitive/offline cases. If the user has no preference, default to Cloud. Relay this comparison in plain language (Chinese if the user writes Chinese):
 
 | | 本地版 (Local) | 云端版 (Cloud) |
 |---|---|---|
@@ -91,7 +91,7 @@ Confirm it worked: `makeitdown --help`. If the command isn't on PATH yet, run `u
 
 ### Step 4 — Cloud edition only: set the token
 
-The Cloud edition needs a PaddleOCR AI Studio token. Walk the user through getting one at https://aistudio.baidu.com/ , then set it as an environment variable (never hardcode it, never put it on the command line where it lands in shell history):
+The Cloud edition needs a PaddleOCR AI Studio token. Walk the user through getting one at https://aistudio.baidu.com/paddleocr , then set it as an environment variable (never hardcode it, never put it on the command line where it lands in shell history):
 
 - **macOS:** `export PADDLEOCR_AISTUDIO_TOKEN="<token>"` (add to `~/.zshrc` to persist)
 - **Windows (PowerShell):** `setx PADDLEOCR_AISTUDIO_TOKEN "<token>"` (persists for new shells)
@@ -112,10 +112,11 @@ succeeded/failed/skipped files. A single broken file never aborts the batch.
 
 ## OCR backend
 
-`--ocr-engine` defaults to `auto`: use local PaddleOCR if the Local edition is
-installed, else fall back to the cloud API when a token is set. Force a backend with
-`--ocr-engine local` or `--ocr-engine cloud` if needed. The cloud token comes from
-env `PADDLEOCR_AISTUDIO_TOKEN` (or `--cloud-token`).
+`--ocr-engine` defaults to `cloud` (uploads the document; requires `--cloud-consent`
+or `MAKEITDOWN_CLOUD_CONSENT=1`, and never uploads silently without it). Use
+`--ocr-engine local` to keep documents on-device (needs the Local edition installed),
+or `--ocr-engine auto` to prefer local when installed and fall back to cloud. The cloud
+token comes from env `PADDLEOCR_AISTUDIO_TOKEN` (or `--cloud-token`).
 
 ## Common options
 
@@ -123,7 +124,10 @@ env `PADDLEOCR_AISTUDIO_TOKEN` (or `--cloud-token`).
 - `--workers N` — concurrency (native conversions run in parallel; local OCR is
   serialized internally for thread-safety, so this mainly speeds up native files).
 - `--text-threshold N` — avg chars/page below which a PDF is treated as scanned.
-- `--keep-images` — keep images extracted from scans (default: text-only output).
+- `--keep-images` — extract image files from scans and keep standard `![]()`
+  references (default: text-only, but each image now leaves a `〔图像：文件名〕`
+  placeholder marker recording that an image existed at that spot — never
+  silently dropped; `report.json` reports `images_omitted`).
 
 ## Quality flags (suspect output travels with the file)
 

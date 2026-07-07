@@ -28,20 +28,6 @@ _IMG_SRC_RE = re.compile(r"""src\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _EMPTY_DIV_RE = re.compile(r"<div\b[^>]*>\s*</div>", re.IGNORECASE)
 
 
-def _strip_images(text: str) -> str:
-    """Remove image references (HTML <img> and markdown ![]()) and collapse any
-    wrapper <div> left empty as a result. Text-only output for LLM ingestion;
-    table-wrapping divs keep their content and are preserved.
-    """
-    text = _IMG_HTML_RE.sub("", text)
-    text = _IMG_MD_RE.sub("", text)
-    prev = None
-    while prev != text:
-        prev = text
-        text = _EMPTY_DIV_RE.sub("", text)
-    return text
-
-
 def _image_marker(name: str) -> str:
     return f"〔图像：{name} —— 已省略未保留，请查原件〕"
 
@@ -149,6 +135,7 @@ def convert_tree(
         "failed": 0,
         "skipped_existing": 0,
         "skipped_unsupported": 0,
+        "images_omitted": 0,
         "failures": [],
         "warnings": [],
         "skipped": [],
@@ -185,10 +172,10 @@ def convert_tree(
         out_md = _out_md_for(rel)
         # Cheap stat check first so re-runs don't open (and decode) files just to skip them.
         if skip_existing and _is_up_to_date(src, out_md):
-            return ("skipped_existing", rel, None, False)
+            return ("skipped_existing", rel, None, False, 0)
         route = classify(src, text_threshold=text_threshold)
         if route == "unsupported":
-            return ("skipped_unsupported", rel, None, False)
+            return ("skipped_unsupported", rel, None, False, 0)
         try:
             source_type = src.suffix.lstrip(".")
             struct_reasons: list[str] = []
@@ -212,26 +199,28 @@ def convert_tree(
                             struct_reasons.append(warn)
                     except Exception:
                         pass
+            n_omitted = 0
             if not keep_images:
-                result.text = _strip_images(result.text)
+                result.text, n_omitted = _mark_images(result.text)
                 result.assets = {}
             cc_reasons = result.cross_check_reasons or []
             reasons = struct_reasons + cc_reasons + _quality_reasons(result, source_type)
             _write_output(out_md, result, rel.as_posix(), source_type,
                           warnings=reasons)
             if reasons:
-                return ("warned", rel, reasons, structured_ok)
-            return ("succeeded", rel, None, structured_ok)
+                return ("warned", rel, reasons, structured_ok, n_omitted)
+            return ("succeeded", rel, None, structured_ok, n_omitted)
         except LegacyConversionUnavailable as e:
             # Recognized but no converter available: skip knowingly with a hint.
-            return ("skipped_unsupported", rel, str(e), False)
+            return ("skipped_unsupported", rel, str(e), False, 0)
         except Exception as e:  # never abort the batch
-            return ("failed", rel, f"{type(e).__name__}: {e}", False)
+            return ("failed", rel, f"{type(e).__name__}: {e}", False, 0)
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         for future in as_completed(pool.submit(handle, src) for src in files):
-            status, rel, detail, structured = future.result()
+            status, rel, detail, structured, images_omitted = future.result()
             report[status] += 1
+            report["images_omitted"] += images_omitted
             if structured:
                 report["structured"] += 1
             if status == "failed":
