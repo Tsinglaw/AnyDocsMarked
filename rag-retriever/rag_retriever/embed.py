@@ -7,12 +7,24 @@ model, or similarity is meaningless — switching models requires re-indexing.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Protocol
 
 import httpx
 
 from .config import Config
+
+# Directory where a vendored ONNX copy of the local model is shipped in the
+# release bundle so the first index works offline (no HuggingFace download).
+# Layout: _models/<model_name with '/' -> '--'>/ containing the files fastembed
+# expects (model_optimized.onnx + tokenizer.json/config.json/vocab.txt/...).
+_BUNDLED_MODELS_DIR = Path(__file__).resolve().parent / "_models"
+
+
+def _bundled_model_dir(model_name: str) -> Path:
+    return _BUNDLED_MODELS_DIR / model_name.replace("/", "--")
 
 
 class Embedder(Protocol):
@@ -23,7 +35,7 @@ class Embedder(Protocol):
 class LocalEmbedder:
     """In-process embeddings via fastembed (ONNX, no torch, no server)."""
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, model_path: str | None = None):
         from fastembed import TextEmbedding
 
         supported = {m["model"] for m in TextEmbedding.list_supported_models()}
@@ -34,7 +46,19 @@ class LocalEmbedder:
                 f"{sorted(s for s in supported if 'bge' in s.lower() or 'e5' in s.lower() or 'm3' in s.lower())}\n"
                 f"Set RAG_EMBED_MODEL to a supported id, or switch RAG_EMBED_BACKEND."
             )
-        self._model = TextEmbedding(model_name=model_name)
+        # Prefer a locally vendored copy (release bundle, or RAG_EMBED_MODEL_PATH)
+        # so the first index needs no network. specific_model_path short-circuits
+        # fastembed's HuggingFace/GCS download entirely; fall back to the normal
+        # download only when no local copy is present.
+        local_dir = Path(model_path) if model_path else _bundled_model_dir(model_name)
+        if local_dir.is_dir():
+            self._model = TextEmbedding(
+                model_name=model_name,
+                specific_model_path=str(local_dir),
+                local_files_only=True,
+            )
+        else:
+            self._model = TextEmbedding(model_name=model_name)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [v.tolist() for v in self._model.embed(texts)]
@@ -120,7 +144,7 @@ class OpenAICompatEmbedder(_HttpEmbedder):
 @lru_cache(maxsize=1)
 def get_embedder(cfg: Config) -> Embedder:
     if cfg.embed_backend == "local":
-        return LocalEmbedder(cfg.embed_model)
+        return LocalEmbedder(cfg.embed_model, cfg.embed_model_path or None)
     if cfg.embed_backend == "ollama":
         return OllamaEmbedder(cfg.embed_model, cfg.ollama_url, cfg.embed_batch_size)
     if cfg.embed_backend == "openai":

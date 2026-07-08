@@ -9,11 +9,18 @@ straddles a boundary is still retrievable. Token counts use tiktoken o200k_base
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 from functools import cache
+from pathlib import Path
 
 import tiktoken
+
+# A vendored copy of the o200k_base BPE, shipped in the release bundle so the
+# first token count needs no network (the OpenAI blob is slow/blocked in China).
+# Populated by scripts/fetch_bundled_model.py; git-ignored, force-included in the wheel.
+_TIKTOKEN_CACHE = Path(__file__).resolve().parent / "_tiktoken"
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,10 @@ def _encoder():
     # Lazily built: `get_encoding` may fetch the BPE file on first use, so doing
     # it at import would force a network round-trip just to import this module
     # (and break the "local-first / offline" promise). Build it on first count.
+    # Prefer the vendored BPE when present so the first count stays fully offline;
+    # TIKTOKEN_CACHE_DIR must be set before get_encoding reads it.
+    if _TIKTOKEN_CACHE.is_dir() and any(_TIKTOKEN_CACHE.iterdir()):
+        os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(_TIKTOKEN_CACHE))
     return tiktoken.get_encoding("o200k_base")
 
 

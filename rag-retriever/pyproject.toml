@@ -27,6 +27,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["rag_retriever"]
+# The vendored offline assets (embedding ONNX + tiktoken BPE, fetched by
+# scripts/fetch_bundled_model.py) are git-ignored to keep the repo lean, so
+# force-include them in the release wheel.
+artifacts = ["rag_retriever/_models/**", "rag_retriever/_tiktoken/**"]
 
 [dependency-groups]
 dev = [
