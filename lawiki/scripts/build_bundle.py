@@ -5,18 +5,25 @@
 把三部分的**源码**当场从本地权威仓库复制进一个自包含 zip（每次发版重新
 vendor 最新源码，避免副本陈旧）：
 
-  anydocsmarked-v<版本>.zip
+  anydocsmarked-v<版本>.zip         （plain，仅源码，不含模型）
+  anydocsmarked-v<版本>-offline.zip （--offline，额外含 vendored embedding ONNX）
+
+包结构：
   ├── skill/lawiki/          # agent 加载的 skill
-  ├── vendor/rag-retriever/  # 源码 + LICENSE
+  ├── vendor/rag-retriever/  # 源码 + LICENSE（plain 包不含 _models/_tiktoken）
   ├── vendor/makeitdown/     # 源码 + LICENSE
   ├── install.py             # 安装器
   ├── MANIFEST.txt           # 三部分各自的 commit 哈希
   └── README.txt
 
-排除 .git/.venv/缓存/构建产物/案件数据/大模型——bundle 是纯源码（几 MB）。
-OCR/embedding 模型在安装或首次运行时下载。
+Plain 包（默认）不含本地 embedding ONNX；模型在安装/首次运行时下载。
+--offline 包含 rag_retriever/_models/（约 90 MB），让国内用户"解压即离线可用"。
 
-用法：python scripts/build_bundle.py [--version 1.0.0]
+生成 --offline 包前，先在能联网的机器上取一次模型：
+  rag-retriever/.venv/Scripts/python rag-retriever/scripts/fetch_bundled_model.py
+
+用法：
+  python scripts/build_bundle.py [--version 1.0.0] [--offline]
 """
 from __future__ import annotations
 
@@ -41,19 +48,37 @@ _EXCLUDE = {
 }
 _EXCLUDE_SUFFIX = {".pyc", ".pyo", ".zip"}
 
-
-def _ignore(_dir: str, names: list[str]) -> set[str]:
-    out = set()
-    for n in names:
-        if n in _EXCLUDE or any(n.endswith(s) for s in _EXCLUDE_SUFFIX) or n.endswith(".egg-info"):
-            out.add(n)
-    return out
+# Vendored offline assets (embedding ONNX + tiktoken BPE). Excluded from the
+# plain bundle; included only when building the --offline bundle.
+_VENDORED = {"_models", "_tiktoken"}
 
 
-def _copy_tree(src: Path, dst: Path) -> None:
+def _make_ignore(offline: bool):
+    exclude = _EXCLUDE if offline else (_EXCLUDE | _VENDORED)
+
+    def _ignore(_dir: str, names: list[str]) -> set:
+        out = set()
+        for n in names:
+            if n in exclude or any(n.endswith(s) for s in _EXCLUDE_SUFFIX) or n.endswith(".egg-info"):
+                out.add(n)
+        return out
+
+    return _ignore
+
+
+def _copy_tree(src: Path, dst: Path, offline: bool) -> None:
     if not src.is_dir():
         sys.exit(f"找不到源目录：{src}")
-    shutil.copytree(src, dst, ignore=_ignore)
+    shutil.copytree(src, dst, ignore=_make_ignore(offline))
+
+
+def _zip_name(version: str, offline: bool) -> str:
+    return f"anydocsmarked-v{version}{'-offline' if offline else ''}.zip"
+
+
+def _has_vendored_models(rag_src: Path) -> bool:
+    d = rag_src / "rag_retriever" / "_models"
+    return d.is_dir() and any(f.is_file() for f in d.rglob("*"))
 
 
 def _git_head(repo: Path) -> str:
@@ -72,9 +97,14 @@ def main(argv: list[str]) -> int:
         pass
     ap = argparse.ArgumentParser(prog="build_bundle.py")
     ap.add_argument("--version", default="1.0.0")
+    ap.add_argument("--offline", action="store_true",
+                    help="include vendored embedding/tiktoken assets; names the zip -offline")
     args = ap.parse_args(argv[1:])
 
-    out_zip = LAWIKI / "dist" / f"anydocsmarked-v{args.version}.zip"
+    if args.offline and not _has_vendored_models(RAG_SRC):
+        sys.exit("--offline 需要先运行 rag-retriever/scripts/fetch_bundled_model.py 生成 _models/")
+
+    out_zip = LAWIKI / "dist" / _zip_name(args.version, args.offline)
     out_zip.parent.mkdir(exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -82,10 +112,11 @@ def main(argv: list[str]) -> int:
         root.mkdir()
 
         # 1) skill
-        _copy_tree(LAWIKI / "skill" / "lawiki", root / "skill" / "lawiki")
+        _copy_tree(LAWIKI / "skill" / "lawiki", root / "skill" / "lawiki", args.offline)
         # 2) vendor 全部三个（除 skill 外的两个外部项目）
-        _copy_tree(RAG_SRC, root / "vendor" / "rag-retriever")
-        _copy_tree(MD_SRC, root / "vendor" / "makeitdown")
+        _copy_tree(RAG_SRC, root / "vendor" / "rag-retriever", args.offline)
+        _copy_tree(MD_SRC, root / "vendor" / "makeitdown", args.offline)
+
         # 3) 安装器
         shutil.copy2(LAWIKI / "install.py", root / "install.py")
 
