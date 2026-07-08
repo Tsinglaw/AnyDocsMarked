@@ -1,10 +1,9 @@
 name: release
 
-# Publish the downloadable bundles to a GitHub Release when a version tag is
-# pushed, e.g.:  git tag v1.0.3 && git push origin v1.0.3
-#
-# Must live at the repo root: a workflow under makeitdown/.github/ (where this
-# logic used to be, pre-monorepo) is invisible to GitHub Actions and never runs.
+# Publish BOTH downloadable bundles to a GitHub Release when a version tag is
+# pushed, e.g.:  git tag v1.1.2 && git push origin v1.1.2
+#   - anydocsmarked-v<ver>.zip          (source only, ~500KB)
+#   - anydocsmarked-v<ver>-offline.zip  (+ vendored embedding ONNX + tiktoken)
 on:
   push:
     tags: ["v*"]
@@ -22,11 +21,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # The single downloadable artifact: anydocsmarked-v<version>.zip
-      # (whole project: skill + vendored makeitdown/rag-retriever source + install.py).
-      - name: Build AnyDocsMarked bundle
+
+      # 1) Source-only bundle FIRST, before any vendored assets exist.
+      - name: Build source bundle
         run: python lawiki/scripts/build_bundle.py --version "${GITHUB_REF_NAME#v}"
-      - name: Publish release with the bundle attached
+
+      # 2) Vendor the offline assets (embedding ONNX + tiktoken BPE) into the
+      #    rag-retriever source tree. CI can reach HuggingFace/OpenAI.
+      - name: Vendor offline embedding + tiktoken assets
+        run: |
+          pip install ./rag-retriever
+          python rag-retriever/scripts/fetch_bundled_model.py
+
+      # 3) Offline bundle (now the vendored assets are present).
+      - name: Build offline bundle
+        run: python lawiki/scripts/build_bundle.py --version "${GITHUB_REF_NAME#v}" --offline
+
+      # 4) Fail the release if the offline bundle didn't actually capture the model.
+      - name: Verify offline bundle contains the model
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          zip="lawiki/dist/anydocsmarked-v${ver}-offline.zip"
+          unzip -l "$zip" | grep -Eq "vendor/rag-retriever/rag_retriever/_models/.*\.onnx" \
+            || { echo "::error::offline bundle is missing the .onnx model"; exit 1; }
+
+      # 5) Publish the release with BOTH bundles attached.
+      - name: Publish release with both bundles
         uses: softprops/action-gh-release@v2
         with:
           files: |
