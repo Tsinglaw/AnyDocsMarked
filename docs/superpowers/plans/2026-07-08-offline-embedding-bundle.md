@@ -111,6 +111,16 @@ Do NOT `git add -A` — other unrelated working-tree changes must stay uncommitt
 - Modify: `lawiki/scripts/build_bundle.py`
 - Create: `lawiki/scripts/test_build_bundle.py`
 
+**⚠ Working-tree starting state (reconcile, do not collide):** `build_bundle.py`
+already has uncommitted WIP that took a *different, now-superseded* approach —
+(a) a docstring paragraph claiming the embedding ONNX is shipped **unconditionally**,
+and (b) a post-vendor-copy block in `main()` that just *prints* whether `_models`
+was included. The approved design replaces that with the two-mode (`--offline`)
+approach below. So in addition to the edits in Step 3, you MUST:
+- **Remove** the WIP's post-copy guard-print block in `main()` (the `model_dir = root / "vendor" / ...` / `print("✓ 已含..." / "⚠ 包内无...")` lines). The new pre-copy `--offline` guard supersedes it.
+- **Fix** the WIP docstring paragraph so it describes two bundles: the plain bundle is source-only (models excluded); `--offline` ships the vendored embedding ONNX. Do not leave the "本地 embedding 的 ONNX 会随包发出" (unconditional) wording.
+The final committed file must match the two-mode design — the WIP is evolving into it, nothing is "kept" from the superseded guard-print.
+
 **Interfaces:**
 - Consumes: nothing from other tasks.
 - Produces (module-level, testable helpers):
