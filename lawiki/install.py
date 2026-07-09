@@ -128,6 +128,8 @@ def main(argv: list[str]) -> int:
     _say('就绪后把文件放进案件目录的 原始资料/，对 agent 说「整理案件资料」。')
     if args.ocr == "cloud":
         _say("云端 OCR 需设 PADDLEOCR_AISTUDIO_TOKEN，见 skill/lawiki/references/setup.md。")
+    # Mirrors rag_retriever.embed._BUNDLED_MODELS_DIR (stdlib-only installer can't
+    # import it); keep the "_models" layout in sync if that package is renamed.
     offline_models = VENDOR / "rag-retriever" / "rag_retriever" / "_models"
     if offline_models.is_dir():
         _say("✓ 离线包：已内置 embedding 模型，首次建索引无需联网下载。")

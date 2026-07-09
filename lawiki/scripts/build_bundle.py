@@ -54,7 +54,8 @@ _VENDORED = {"_models", "_tiktoken"}
 
 
 def _make_ignore(offline: bool):
-    exclude = _EXCLUDE if offline else (_EXCLUDE | _VENDORED)
+    # Always skip _EXCLUDE; the plain bundle additionally skips the vendored assets.
+    exclude = _EXCLUDE | (set() if offline else _VENDORED)
 
     def _ignore(_dir: str, names: list[str]) -> set:
         out = set()
@@ -77,8 +78,10 @@ def _zip_name(version: str, offline: bool) -> str:
 
 
 def _has_vendored_models(rag_src: Path) -> bool:
+    # An offline bundle is only real if a model .onnx was vendored (rglob on a
+    # missing dir yields nothing, so no separate is_dir() check is needed).
     d = rag_src / "rag_retriever" / "_models"
-    return d.is_dir() and any(f.is_file() for f in d.rglob("*"))
+    return next(d.rglob("*.onnx"), None) is not None
 
 
 def _git_head(repo: Path) -> str:

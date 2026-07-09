@@ -91,8 +91,9 @@ def _encoder():
     # it at import would force a network round-trip just to import this module
     # (and break the "local-first / offline" promise). Build it on first count.
     # Prefer the vendored BPE when present so the first count stays fully offline;
-    # TIKTOKEN_CACHE_DIR must be set before get_encoding reads it.
-    if _TIKTOKEN_CACHE.is_dir() and any(_TIKTOKEN_CACHE.iterdir()):
+    # TIKTOKEN_CACHE_DIR must be set before get_encoding reads it. (An empty
+    # vendored dir simply falls through to tiktoken's normal download.)
+    if _TIKTOKEN_CACHE.is_dir():
         os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(_TIKTOKEN_CACHE))
     return tiktoken.get_encoding("o200k_base")
 
