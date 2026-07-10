@@ -82,6 +82,41 @@ class EnrichHitTests(unittest.TestCase):
         self.assertTrue(enriched["unverified"])
         self.assertTrue(enriched["anchor"].endswith("（未核验）"))
 
+    def test_breadcrumb_prefix_stripped_anchor_passes_real_lint(self):
+        # 结构分块的命中 text 带标题面包屑前缀（rag-retriever pipeline._compose），
+        # 而源文件里两个标题之间隔着正文——面包屑不是连续文本，直接进锚点必挂 lint。
+        # enrich_hit 须按 metadata.heading_path 剥前缀后再取默认片段。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src = ("---\nsource: 判决书.pdf\n---\n# 民事判决书\n\n"
+                   "（2023）京0105民初12345号\n\n## 本院认为\n\n"
+                   "本院认为，被告应向原告偿还借款本金人民币 50000 元。\n")
+            (root / "_md").mkdir(parents=True)
+            (root / "_md" / "判决书.md").write_text(src, encoding="utf-8")
+
+            hit = {"source": "_md/判决书.md",
+                   "text": ("民事判决书 > 本院认为\n\n"
+                            "本院认为，被告应向原告偿还借款本金人民币 50000 元。"),
+                   "metadata": {"heading_path": "民事判决书 > 本院认为"}}
+            enriched = rag.enrich_hit(hit)
+
+            (root / "wiki").mkdir()
+            (root / "wiki" / "p.md").write_text(
+                f"- 事实 {enriched['anchor']}\n", encoding="utf-8")
+            total, violations, _ = scan_case(root)
+            self.assertEqual(total, 1)
+            self.assertEqual(violations, [], msg=str(violations))
+
+    def test_heading_path_absent_snippet_unchanged(self):
+        hit = {"source": "_md/a.md", "text": "正文片段", "metadata": {}}
+        self.assertIn("「正文片段」", rag.enrich_hit(hit)["anchor"])
+
+    def test_heading_path_prefix_mismatch_not_stripped(self):
+        # heading_path 存在但 text 不以它开头（防御边界）——不剥、不崩。
+        hit = {"source": "_md/a.md", "text": "正文片段",
+               "metadata": {"heading_path": "别的标题"}}
+        self.assertIn("「正文片段」", rag.enrich_hit(hit)["anchor"])
+
 
 class ModelStatusTests(unittest.TestCase):
     # stats supplies BOTH index-time and live query model; wrapper only compares.

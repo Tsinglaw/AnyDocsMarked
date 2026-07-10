@@ -59,14 +59,21 @@ def default_snippet(text: str) -> str:
 def enrich_hit(hit: dict) -> dict:
     """给一条检索命中补上 lawiki 锚点（单行默认片段）与 unverified 标记。
 
-    片段取自命中的逐字 text（rag-retriever 从 _md/ 逐字切出），经 lint 归一化后
-    必能在源文件定位——问答引用机器可校验。`text` 保持原样（含 frontmatter/换行）
-    供 agent 通读并自行挑选更精确的支撑句。
+    片段取自命中的逐字 text（rag-retriever 从 _md/ 逐字切出），但要先剥掉
+    结构分块拼在前面的标题面包屑（"标题A > 标题B\\n\\n正文"）——面包屑在源
+    文件里不是连续文本，进锚点必挂 lint。剥完的片段经 lint 归一化后必能在
+    源文件定位。`text` 保持原样（含面包屑/frontmatter/换行）供 agent 通读
+    并自行挑选更精确的支撑句。
     """
-    quality = (hit.get("metadata") or {}).get("quality")
+    meta = hit.get("metadata") or {}
+    quality = meta.get("quality")
+    text = hit["text"]
+    heading = meta.get("heading_path")
+    if heading and text.startswith(heading + "\n\n"):
+        text = text[len(heading) + 2:]
     return {
         **hit,
-        "anchor": build_anchor(hit["source"], default_snippet(hit["text"]), quality),
+        "anchor": build_anchor(hit["source"], default_snippet(text), quality),
         "unverified": quality == "suspect",
     }
 
