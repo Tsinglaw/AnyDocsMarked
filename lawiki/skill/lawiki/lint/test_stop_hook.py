@@ -70,3 +70,11 @@ def test_outside_md_anchor_blocked(tmp_path):
     _write(root / "wiki" / "页.md", "已有结论")
     reason = decide(root, "结论。〔来源: wiki/页.md：「已有结论」〕")
     assert reason and "闭世界" in reason
+
+
+def test_traversal_anchor_blocked(tmp_path):
+    # hook 与 answer 闸门共用 check_answer_anchors，穿越绕过必须两边都堵住。
+    root = _root(tmp_path)
+    _write(root / "wiki" / "页.md", "已有结论")
+    reason = decide(root, "结论。〔来源: _md/../wiki/页.md：「已有结论」〕")
+    assert reason and "闭世界" in reason

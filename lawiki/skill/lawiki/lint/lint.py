@@ -12,6 +12,7 @@ check 五类：① 锚点存在（EXTRACTED 硬底线）② 死链 ③ 时间线
 """
 import ast
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -256,7 +257,12 @@ def check_answer_anchors(root: Path, text: str, where: str) -> tuple[int, list[s
     violations, _cited, total = _check_anchors(root, [(root / where, where, text)])
     for m in ANCHOR_RE.finditer(text):
         rel = m.group(1).strip().replace("\\", "/")
-        if not rel.startswith("_md/"):
+        # 闭世界要的是"归一化后仍落在 _md/ 之内"，纯前缀串检查会被 _md/../ 穿越绕过
+        # （_check_anchors 走文件系统解析、能穿到 _md/ 外，前缀串却只看开头骗得过）；
+        # 用 normpath 收敛 . / .. 后再判首段是否 _md 且不含 ".."，顺带给 ./_md/ 这类
+        # 无害写法摘掉旧前缀检查误报的帽子。
+        parts = os.path.normpath(rel).replace("\\", "/").split("/")
+        if parts[0] != "_md" or ".." in parts:
             violations.append(
                 f"[闭世界] {where}\n          锚点指向本案 _md/ 之外: {rel}")
     return total, violations
@@ -370,7 +376,13 @@ def main(argv: list[str]) -> int:
         if not draft.is_file():
             print(f"找不到回答草稿：{draft}", file=sys.stderr)
             return 2
-        total, violations = scan_answer(root, draft)
+        try:
+            total, violations = scan_answer(root, draft)
+        except (OSError, UnicodeDecodeError) as e:
+            # 读不动草稿是环境/编码问题，不是"内容违规"——退出码要能区分开，
+            # 否则协议会把"崩溃"误读成"违规打回"。
+            print(f"无法读取回答草稿：{e}", file=sys.stderr)
+            return 2
         print(f"回答锚点 {total} 个；违规 {len(violations)} 处。")
         for v in violations:
             print("  ✗ " + v)

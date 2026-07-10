@@ -22,7 +22,10 @@ from lint import check_answer_anchors  # noqa: E402
 
 
 def last_assistant_text(transcript_path: str) -> str:
-    """从 Claude Code 的 JSONL transcript 抽最后一条 assistant 文本。"""
+    """从 Claude Code 的 JSONL transcript 抽最后一条 assistant 文本。
+    假设：Stop 触发时最终可见回复必含文本块，因此"取最后一条带文本的 assistant
+    entry"是安全的兜底；即便遇到病态的纯工具调用尾巴，最坏也只是把上一条（较旧）
+    回复再校验一遍——stop_hook_active 挡住了由此产生的死循环风险。"""
     p = Path(transcript_path)
     if not p.is_file():
         return ""
@@ -61,6 +64,10 @@ def main() -> int:
     try:
         data = json.load(sys.stdin)
     except ValueError:
+        return 0
+    if not isinstance(data, dict):
+        # 合法 JSON 但不是对象（如 `[1]`）——data.get(...) 会因 AttributeError 崩溃；
+        # hook 的契约是"读不懂就放行、绝不因垃圾输入报错刷屏"，同垃圾 JSON 一视同仁。
         return 0
     if data.get("stop_hook_active"):
         return 0  # 已在 hook 触发的重答里，不再拦：防死循环

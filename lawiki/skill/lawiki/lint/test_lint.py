@@ -206,6 +206,15 @@ def test_answer_non_md_anchor_flagged_closed_world(tmp_path):
     assert len(viol) == 1 and "闭世界" in viol[0]
 
 
+def test_answer_traversal_anchor_flagged_closed_world(tmp_path):
+    # `_md/../wiki/页.md` 用文件系统解析能穿到 _md/ 之外并命中真实存在的文件——
+    # 旧的纯前缀串检查会被这种穿越骗过（以 "_md/" 开头就放行）；闭世界必须抓住它。
+    root, draft = _draft_case(tmp_path, "结论。〔来源: _md/../wiki/页.md：「已有结论」〕\n")
+    _write(root / "wiki" / "页.md", "已有结论")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "闭世界" in viol[0]
+
+
 def test_answer_bare_prose_flagged(tmp_path):
     # 整篇裸答：有实质内容、零锚点、未明示「未找到」——打回。
     root, draft = _draft_case(tmp_path, "被告应偿还 5 万元。\n")
@@ -235,3 +244,13 @@ def test_answer_cli_exit_codes(tmp_path):
     _write(bad, "裸答无锚点。\n")
     assert main(["lint.py", "answer", str(root), str(bad)]) == 1
     assert main(["lint.py", "answer", str(root), str(tmp_path / "无此文件.md")]) == 2
+
+
+def test_answer_undecodable_draft_returns_2_not_crash(tmp_path):
+    # 无法解码的草稿应是"读取失败"（退出码 2），而不是让 UnicodeDecodeError
+    # 冒出去、被协议误读成"违规打回"（退出码 1）。
+    from lint import main
+    root, _draft = _draft_case(tmp_path, "未在本案材料中找到相关约定。\n")
+    bad = tmp_path / "bad_encoding.md"
+    bad.write_bytes(b"\xff\xfe\x00bad")
+    assert main(["lint.py", "answer", str(root), str(bad)]) == 2
