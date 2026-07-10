@@ -100,6 +100,29 @@ uv tool install --python 3.12 --index https://pypi.tuna.tsinghua.edu.cn/simple "
 
 **一致性铁规**：索引与查询**必须同一 embedding 模型**，否则相似度失真。机制：rag-retriever 索引时把模型记进 `.rag/`，wrapper 查询前自动比对、不一致即降级并提示 rebuild（删 `.rag/` 重建索引）。**换模型 = 必须重建索引。**
 
+## 第 3 步再补 · 问答交付闸门加硬（可选，仅 Claude Code）
+
+问答协议已要求 agent 交付前自跑 `lint.py answer`（见 `qa.md` 第四步）。用 Claude Code 时可再加一道 harness 级保险：**Stop hook** 在每次回复结束时自动校验回复中的锚点（逐字存在 + 指向本案 `_md/`），违规自动打回重答。在**案件目录**建 `.claude/settings.json`（`<SKILL_DIR>` 换成本 skill 的绝对路径）：
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<SKILL_DIR>/lint/stop_hook.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+边界（如实告诉用户）：hook 只做零误报的两检；**无锚点的回复不拦**（它分不清案件问答与日常闲聊），「裸答必须明示未找到」的兜底仍靠协议里的 answer 闸门。其他 agent（Codex / Copilot 等）无此机制，靠协议约束；闸门工具本身零依赖、随 skill 走。
+
 ## 第 4 步 · 优雅降级
 
 makeitdown 实在装不上时**不阻塞核心**：若用户已有别处转好的 `_md/`，lawiki 仍能直接 ingest + 跑校验，只是不能在本机做转换。把这点告诉用户。
