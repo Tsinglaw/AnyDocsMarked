@@ -7,7 +7,7 @@ description: Use when building, maintaining, OR answering questions about a Chin
 
 把一个案件的原始资料整合成**可控、可溯源**的 wiki。你（agent）负责全部归档与维护。法律工作不接受模糊和混乱——下面的**铁律（三类标注 + 逐字锚点硬底线）不可违反**。
 
-细节按需读本 skill 的 `references/`（`setup.md` 首次配环境、`page-formats.md` 页面格式+Obsidian 约定、`verification.md` 校验、`rag.md` RAG 索引检索、`qa.md` 案件问答协议）；不必一次全装进注意力。工具在 `tools/`：`rag.py`（RAG 包装）、`outline.py`（`_md` 标题树导航，零依赖、对抗遗漏、亦作无 RAG 降级）。`<SKILL_DIR>` 指本 skill 实际所在目录。
+细节按需读本 skill 的 `references/`（`setup.md` 首次配环境、`page-formats.md` 页面格式+Obsidian 约定、`verification.md` 校验、`rag.md` RAG 索引检索、`qa.md` 案件问答协议）；不必一次全装进注意力。工具在 `tools/`：`evidence.py`（问答取证一条命令：RAG+精确词+outline）、`rag.py`（RAG 包装）、`outline.py`（`_md` 标题树导航，零依赖、对抗遗漏、亦作无 RAG 降级）。`<SKILL_DIR>` 指本 skill 实际所在目录。
 
 ## 何时用 / 怎么激活
 
@@ -77,7 +77,7 @@ python <SKILL_DIR>/tools/rag.py index <案件根目录>
 
 **闭世界铁规（先检索后答）**：本案事实的唯一来源 = 本案 `原始资料/_md/wiki/.rag`；**答前必先检索，严禁凭记忆/通用法律知识直接回答**；查不到就明说「未在本案材料中找到」，绝不脑补；每个事实挂逐字锚点。通用分析须标 `> [!note] 分析（非本案证据）`。
 
-流程：**多路并行取证**（wiki 已综合结论 + RAG 原文 `python <SKILL_DIR>/tools/rag.py search <案件根> "<问题>" -k 8` + outline 结构 + 精确词 grep `_md`）→ **四情形分流**：一致则答、wiki 沉默用原文答、不一致能定因则以原文为准并指出 wiki 待修处、查不出因则把两套答案 + 各自锚点并列交用户裁决。完整协议见 **`references/qa.md`**。RAG 不可用时退化「仅 wiki」并告知用户。
+流程：**取证**（wiki 路自由导航 + 一条命令跑齐其余三路：`python <SKILL_DIR>/tools/evidence.py <案件根> "<问题>" --terms "<精确词>" -k 8`，RAG/精确词 grep/outline）→ **四情形分流**：一致则答、wiki 沉默用原文答、不一致能定因则以原文为准并指出 wiki 待修处、查不出因则两套答案 + 各自锚点并列、附标注为分析的倾向、交用户裁决 → **交付闸门（铁规）**：回答先写草稿过 `python <SKILL_DIR>/lint/lint.py answer <案件根> <草稿.md>`，**0 违规才发**。完整协议见 **`references/qa.md`**。RAG 不可用时证据包自动降级（grep + outline 仍在）并告知用户。
 
 ## 铁律：三类标注 + 一条硬底线（不可违反）
 
