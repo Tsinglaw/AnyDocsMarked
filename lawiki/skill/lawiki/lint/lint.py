@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""lawiki 校验工具（确定性，仅标准库）。两条子命令：
+"""lawiki 校验工具（确定性，仅标准库）。三条子命令：
 
-  python lint.py check   <案件根目录>   # 五类确定性检查，违规则退出码非 0
-  python lint.py extract <案件根目录>   # 抽 claim↔引文清单(JSON)，供换实例判官做蕴含校验
+  python lint.py check   <案件根目录>            # 五类确定性检查，违规则退出码非 0
+  python lint.py extract <案件根目录>            # 抽 claim↔引文清单(JSON)，供换实例判官做蕴含校验
+  python lint.py answer  <案件根目录> <草稿.md>  # 问答交付闸门：锚点全验+闭世界+整篇兜底
 
 check 五类：① 锚点存在（EXTRACTED 硬底线）② 死链 ③ 时间线顺序 ④ 勾稽闭合
 （`> [!check] a+b==c`）⑤ 覆盖率（警告）。只消格式噪声、数字与文字精确——
@@ -243,6 +244,52 @@ def scan_case(root: Path) -> tuple[int, list[str], list[str]]:
     return total, violations, warnings
 
 
+# ───────────────────────── answer：问答交付闸门 ─────────────────────────
+
+NOT_FOUND_PHRASE = "未在本案材料中找到"
+
+
+def check_answer_anchors(root: Path, text: str, where: str) -> tuple[int, list[str]]:
+    """① 锚点全验（复用 _check_anchors）② 闭世界（锚点须指向本案 _md/）。
+    供 answer 闸门与 Stop hook 共用——hook 只跑这两项（零误报，无锚点不拦），
+    「整篇兜底」归 scan_answer。返回 (锚点总数, 违规)。"""
+    violations, _cited, total = _check_anchors(root, [(root / where, where, text)])
+    for m in ANCHOR_RE.finditer(text):
+        rel = m.group(1).strip().replace("\\", "/")
+        if not rel.startswith("_md/"):
+            violations.append(
+                f"[闭世界] {where}\n          锚点指向本案 _md/ 之外: {rel}")
+    return total, violations
+
+
+def _has_substantive_prose(text: str) -> bool:
+    """存在 callout(`>`)/标题(`#`)/空行之外的实质内容行？（前导 frontmatter 跳过）"""
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                lines = lines[i + 1:]
+                break
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith(">") and not s.startswith("#"):
+            return True
+    return False
+
+
+def scan_answer(root: Path, draft: Path) -> tuple[int, list[str]]:
+    """交付闸门三检：锚点全验 + 闭世界 + 整篇兜底。兜底只在零锚点时触发：
+    有实质内容却零锚点、又未明示「未在本案材料中找到」→ 裸答打回。
+    不猜哪句是事实陈述（那是蕴含判官的活），误报率设计为 ~0。"""
+    text = draft.read_text(encoding="utf-8")
+    total, violations = check_answer_anchors(root, text, draft.name)
+    if total == 0 and NOT_FOUND_PHRASE not in text and _has_substantive_prose(text):
+        violations.append(
+            f"[裸答] {draft.name}\n          零锚点、未明示「{NOT_FOUND_PHRASE}」，"
+            f"且含分析标注之外的实质内容——事实必须挂锚点")
+    return total, violations
+
+
 # ───────────────────────── extract：抽 claim↔引文清单 ─────────────────────────
 
 def _context(root: Path, src: str, quote: str, cache: dict, window: int = 120) -> str:
@@ -299,24 +346,37 @@ def main(argv: list[str]) -> int:
         sys.stdout.reconfigure(encoding="utf-8")  # Windows 重定向默认 GBK
     except Exception:
         pass
-    if len(argv) != 3 or argv[1] not in ("check", "extract"):
-        print("用法：python lint.py check|extract <案件根目录>", file=sys.stderr)
-        return 2
-    cmd, root = argv[1], Path(argv[2])
-    if cmd == "extract":
-        print(json.dumps(get_pairs(root), ensure_ascii=False, indent=2))
-        return 0
-    try:
-        total, violations, warnings = scan_case(root)
-    except FileNotFoundError as e:
-        print(e, file=sys.stderr)
-        return 2
-    print(f"扫描锚点 {total} 个；违规 {len(violations)} 处；警告 {len(warnings)} 处。")
-    for v in violations:
-        print("  ✗ " + v)
-    for w in warnings:
-        print("  ! " + w)
-    return 1 if violations else 0
+    usage = ("用法：python lint.py check|extract <案件根目录>\n"
+             "      python lint.py answer <案件根目录> <回答草稿.md>")
+    cmd = argv[1] if len(argv) > 1 else ""
+    if cmd in ("check", "extract") and len(argv) == 3:
+        root = Path(argv[2])
+        if cmd == "extract":
+            print(json.dumps(get_pairs(root), ensure_ascii=False, indent=2))
+            return 0
+        try:
+            total, violations, warnings = scan_case(root)
+        except FileNotFoundError as e:
+            print(e, file=sys.stderr)
+            return 2
+        print(f"扫描锚点 {total} 个；违规 {len(violations)} 处；警告 {len(warnings)} 处。")
+        for v in violations:
+            print("  ✗ " + v)
+        for w in warnings:
+            print("  ! " + w)
+        return 1 if violations else 0
+    if cmd == "answer" and len(argv) == 4:
+        root, draft = Path(argv[2]), Path(argv[3])
+        if not draft.is_file():
+            print(f"找不到回答草稿：{draft}", file=sys.stderr)
+            return 2
+        total, violations = scan_answer(root, draft)
+        print(f"回答锚点 {total} 个；违规 {len(violations)} 处。")
+        for v in violations:
+            print("  ✗ " + v)
+        return 1 if violations else 0
+    print(usage, file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

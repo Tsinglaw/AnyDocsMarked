@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from lint import scan_case, get_pairs  # noqa: E402
+from lint import scan_case, get_pairs, scan_answer  # noqa: E402
 
 
 def _write(p: Path, text: str) -> None:
@@ -166,3 +166,72 @@ def test_extract_per_anchor_subclaim(tmp_path):
     pairs = get_pairs(tmp_path)
     by_quote = {p["quote"]: p["claim"] for p in pairs}
     assert by_quote["X"] == "增资前 X" and by_quote["Y"] == "增资后 Y"
+
+
+# ---- answer 交付闸门（问答铁规：锚点全验 + 闭世界 + 整篇兜底） ----
+
+def _draft_case(tmp_path: Path, draft_text: str,
+                src: str = "本案欠款金额为人民币50,000元，借款人为张三。") -> tuple[Path, Path]:
+    _write(tmp_path / "_md" / "借条.md", src)
+    draft = tmp_path / "draft.md"
+    _write(draft, draft_text)
+    return tmp_path, draft
+
+
+def test_answer_valid_anchor_passes(tmp_path):
+    root, draft = _draft_case(
+        tmp_path, "欠款本金为 5 万元。〔来源: _md/借条.md：「欠款金额为人民币50,000元」〕\n")
+    total, viol = scan_answer(root, draft)
+    assert total == 1 and viol == []
+
+
+def test_answer_wrong_snippet_flagged(tmp_path):
+    root, draft = _draft_case(
+        tmp_path, "欠款本金。〔来源: _md/借条.md：「欠款金额为人民币50,001元」〕\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "片段不符" in viol[0]
+
+
+def test_answer_missing_source_flagged(tmp_path):
+    root, draft = _draft_case(tmp_path, "欠款本金。〔来源: _md/不存在.md：「任意」〕\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "缺文件" in viol[0]
+
+
+def test_answer_non_md_anchor_flagged_closed_world(tmp_path):
+    # 引用真实存在、但在证据宇宙（_md/）之外的文件——锚点存在性过，闭世界抓。
+    root, draft = _draft_case(tmp_path, "结论。〔来源: wiki/页.md：「已有结论」〕\n")
+    _write(root / "wiki" / "页.md", "已有结论")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "闭世界" in viol[0]
+
+
+def test_answer_bare_prose_flagged(tmp_path):
+    # 整篇裸答：有实质内容、零锚点、未明示「未找到」——打回。
+    root, draft = _draft_case(tmp_path, "被告应偿还 5 万元。\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "裸答" in viol[0]
+
+
+def test_answer_not_found_phrase_passes(tmp_path):
+    root, draft = _draft_case(tmp_path, "未在本案材料中找到相关约定。\n")
+    total, viol = scan_answer(root, draft)
+    assert total == 0 and viol == []
+
+
+def test_answer_pure_analysis_passes(tmp_path):
+    # 全篇只有标题 + callout（显式标注的分析）——不是事实陈述，放行。
+    root, draft = _draft_case(
+        tmp_path, "## 分析\n\n> [!note] 分析（非本案证据）\n> 通常此类合同适用总价包干。\n")
+    total, viol = scan_answer(root, draft)
+    assert total == 0 and viol == []
+
+
+def test_answer_cli_exit_codes(tmp_path):
+    from lint import main
+    root, draft = _draft_case(tmp_path, "未在本案材料中找到相关约定。\n")
+    assert main(["lint.py", "answer", str(root), str(draft)]) == 0
+    bad = tmp_path / "bad.md"
+    _write(bad, "裸答无锚点。\n")
+    assert main(["lint.py", "answer", str(root), str(bad)]) == 1
+    assert main(["lint.py", "answer", str(root), str(tmp_path / "无此文件.md")]) == 2
