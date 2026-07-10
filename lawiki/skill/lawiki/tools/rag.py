@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -69,8 +70,13 @@ def enrich_hit(hit: dict) -> dict:
     quality = meta.get("quality")
     text = hit["text"]
     heading = meta.get("heading_path")
-    if heading and text.startswith(heading + "\n\n"):
-        text = text[len(heading) + 2:]
+    if heading:
+        # 面包屑与正文以空行相接是 rag-retriever 内部拼装约定（非其 JSON 契约）。
+        # 按"首个空行前的段落 == 面包屑"做结构性比对，而非要求逐字节拼接——
+        # 分隔符出现 \r\n / 尾随空格漂移时仍能剥掉，避免面包屑无声回流进锚点。
+        head, *rest = re.split(r"\n\s*\n", text, maxsplit=1)
+        if rest and " ".join(head.split()) == heading:
+            text = rest[0]
     return {
         **hit,
         "anchor": build_anchor(hit["source"], default_snippet(text), quality),

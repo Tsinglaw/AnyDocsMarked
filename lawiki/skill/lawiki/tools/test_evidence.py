@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """evidence wrapper 回归测试（stdlib unittest，零依赖）。
 
-锁住：grep 精确命中 + 现成锚点过真实 lint、quality→未核验、查无留痕(not_found)、
+锁住：grep 精确命中 + 现成锚点过真实 lint、quality→未核验、查无列入 not_found、
 每词命中上限、RAG 降级时证据包仍有 grep/outline、gather 输出结构。"""
 import sys
 import tempfile
@@ -29,7 +29,7 @@ class GrepTermsTests(unittest.TestCase):
             root = Path(d)
             _case(root, "合同.md", "# 合同\n\n第八条 违约方应支付违约金 50000 元。\n")
             result = evidence.grep_terms(root, ["第八条"])
-            hits = [h for h in result["hits"] if not h.get("not_found")]
+            hits = result["hits"]
             self.assertEqual(len(hits), 1)
             self.assertEqual(hits[0]["source"], "_md/合同.md")
 
@@ -45,7 +45,7 @@ class GrepTermsTests(unittest.TestCase):
             _case(root, "扫描件.md",
                   "---\nquality: suspect\n---\n借款金额为 88888 元。\n")
             result = evidence.grep_terms(root, ["88888"])
-            hit = [h for h in result["hits"] if not h.get("not_found")][0]
+            hit = result["hits"][0]
             self.assertTrue(hit["unverified"])
             self.assertTrue(hit["anchor"].endswith("（未核验）"))
 
@@ -54,9 +54,8 @@ class GrepTermsTests(unittest.TestCase):
             root = Path(d)
             _case(root, "a.md", "无关内容。\n")
             result = evidence.grep_terms(root, ["李四"])
-            self.assertEqual(result["hits"],
-                             [{"term": "李四", "source": None, "text": None,
-                               "anchor": None, "not_found": True}])
+            self.assertEqual(result["hits"], [])
+            self.assertEqual(result["not_found"], ["李四"])
 
     def test_per_term_cap_marks_truncated(self):
         with tempfile.TemporaryDirectory() as d:
@@ -73,7 +72,7 @@ class GrepTermsTests(unittest.TestCase):
             root = Path(d)
             _case(root, "借条.md", "借款人民币50,000元整。\n")
             result = evidence.grep_terms(root, ["50000"])
-            hits = [h for h in result["hits"] if not h.get("not_found")]
+            hits = result["hits"]
             self.assertEqual(len(hits), 1)
             self.assertIn("50,000", hits[0]["text"])
 
@@ -92,8 +91,7 @@ class GatherTests(unittest.TestCase):
             _case(root, "合同.md", "# 第一章\n\n甲方为某公司。\n")
             bundle = evidence.gather(root, "甲方是谁", ["甲方"], k=8)
             self.assertFalse(bundle["rag"]["rag_available"])
-            self.assertEqual(
-                len([h for h in bundle["grep"]["hits"] if not h.get("not_found")]), 1)
+            self.assertEqual(len(bundle["grep"]["hits"]), 1)
             self.assertEqual(bundle["outline"][0]["source"], "_md/合同.md")
             self.assertEqual(bundle["question"], "甲方是谁")
 
@@ -107,8 +105,9 @@ class GatherTests(unittest.TestCase):
             with mock.patch.object(rag, "search_case", return_value=fake) as m:
                 bundle = evidence.gather(root, "问题", [], k=5)
             m.assert_called_once_with(root, "问题", k=5)
-            self.assertTrue(bundle["rag"]["rag_available"])
-            self.assertEqual(bundle["grep"], {"hits": [], "truncated": []})
+            self.assertEqual(bundle["rag"], fake)
+            self.assertEqual(bundle["grep"],
+                             {"hits": [], "not_found": [], "truncated": []})
 
 
 class TermSplitTests(unittest.TestCase):

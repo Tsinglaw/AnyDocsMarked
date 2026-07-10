@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from lint import check_answer_anchors  # noqa: E402
+from lint import ANCHOR_RE, check_answer_anchors  # noqa: E402
 
 
 def last_assistant_text(transcript_path: str) -> str:
@@ -30,27 +30,30 @@ def last_assistant_text(transcript_path: str) -> str:
     if not p.is_file():
         return ""
     text = ""
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if entry.get("type") != "assistant":
-            continue
-        content = (entry.get("message") or {}).get("content")
-        if isinstance(content, str):
-            text = content
-        elif isinstance(content, list):
-            parts = [b.get("text", "") for b in content
-                     if isinstance(b, dict) and b.get("type") == "text"]
-            if parts:
-                text = "\n".join(parts)
+    with p.open(encoding="utf-8", errors="replace") as f:
+        for line in f:  # 流式逐行：transcript 随会话线性膨胀到数 MB，每次 Stop 都要读，别整读进内存
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            content = (entry.get("message") or {}).get("content")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts = [b.get("text", "") for b in content
+                         if isinstance(b, dict) and b.get("type") == "text"]
+                if parts:
+                    text = "\n".join(parts)
     return text
 
 
 def decide(root: Path, reply: str) -> str | None:
-    """返回 block 理由；None = 放行。无锚点直接放行（零误报边界）。"""
-    if "〔来源:" not in reply:
+    """返回 block 理由；None = 放行。无锚点直接放行（零误报边界）。
+    用 lint 的 ANCHOR_RE 判"有无锚点"——手写字面量若与 lint 的格式漂移，
+    hook 会静默永久放行（与坏掉不可区分），这正是它要防的失效模式。"""
+    if not ANCHOR_RE.search(reply):
         return None
     _total, violations = check_answer_anchors(root, reply, "<回复>")
     if not violations:
