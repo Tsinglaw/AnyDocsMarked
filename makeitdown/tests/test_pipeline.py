@@ -521,3 +521,46 @@ def test_skip_existing_skips_up_to_date_output(tmp_path, monkeypatch):
     assert called["n"] == 0
     assert report["skipped_existing"] == 1
     assert md.read_text(encoding="utf-8") == "old"
+
+
+def _one_native_file(tmp_path, monkeypatch, content="正常的文档内容" * 5):
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "a.docx").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(pl, "classify", lambda p, text_threshold=50: "native")
+    monkeypatch.setattr(pl, "convert_native",
+                        lambda p: ConversionResult(text="# ok\n\n" + content, engine="markitdown"))
+    return src
+
+
+def test_progress_lines_printed_to_stderr_by_default(tmp_path, monkeypatch, capsys):
+    src = _one_native_file(tmp_path, monkeypatch)
+    pl.convert_tree(src, tmp_path / "out", ocr_engine="auto", ocr_model="x",
+                    cloud_token=None, workers=1, skip_existing=False,
+                    text_threshold=50, report_path=tmp_path / "out" / "report.json")
+    err = capsys.readouterr().err
+    assert "[1/1] ✓ a.docx" in err
+
+
+def test_progress_can_be_silenced(tmp_path, monkeypatch, capsys):
+    src = _one_native_file(tmp_path, monkeypatch)
+    pl.convert_tree(src, tmp_path / "out", ocr_engine="auto", ocr_model="x",
+                    cloud_token=None, workers=1, skip_existing=False,
+                    text_threshold=50, report_path=tmp_path / "out" / "report.json",
+                    progress=False)
+    err = capsys.readouterr().err
+    assert "[1/" not in err
+
+
+def test_progress_marks_failure_with_error(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "bad.docx").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(pl, "classify", lambda p, text_threshold=50: "native")
+    def boom(p): raise ValueError("broken file")
+    monkeypatch.setattr(pl, "convert_native", boom)
+    pl.convert_tree(src, tmp_path / "out", ocr_engine="auto", ocr_model="x",
+                    cloud_token=None, workers=1, skip_existing=False,
+                    text_threshold=50, report_path=tmp_path / "out" / "report.json")
+    err = capsys.readouterr().err
+    assert "[1/1] ✗ bad.docx" in err and "broken file" in err

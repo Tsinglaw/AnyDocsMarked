@@ -1,5 +1,7 @@
 import json
 import re
+import sys
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -12,6 +14,25 @@ from .frontmatter import build_frontmatter, prepend_frontmatter
 from .models import LegacyConversionUnavailable
 from .quality import QualityThresholds, assess
 from .router import classify
+
+
+# 进度行状态字形（打到 stderr，供长任务时人/agent 感知进度；见 SKILL.md 长任务模式）。
+_STATUS_GLYPH = {
+    "succeeded": "✓", "warned": "⚠", "failed": "✗",
+    "skipped_existing": "=", "skipped_unsupported": "→",
+}
+
+
+def _progress_line(k: int, total: int, status: str, rel: Path,
+                   detail, elapsed: float) -> str:
+    line = f"[{k}/{total}] {_STATUS_GLYPH.get(status, '?')} {rel.as_posix()}"
+    if status == "failed":
+        return line + f" — {detail}"
+    if status == "skipped_existing":
+        return line + "（已最新，跳过）"
+    if status == "skipped_unsupported":
+        return line + "（需外部转换器，见 report）"
+    return line + f" ({elapsed:.1f}s)"  # succeeded / warned
 
 
 def _iter_files(input_dir: Path) -> list[Path]:
@@ -122,6 +143,7 @@ def convert_tree(
     cross_check_mode: str = "cloud",
     cloud_consent: bool = False,
     mineru_token: str | None = None,
+    progress: bool = True,
 ) -> dict:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -220,9 +242,21 @@ def convert_tree(
         except Exception as e:  # never abort the batch
             return ("failed", rel, f"{type(e).__name__}: {e}", False, 0)
 
+    total = len(files)
+
+    def _timed(src):
+        start = time.monotonic()
+        result = handle(src)  # 5-tuple
+        return (*result, time.monotonic() - start)
+
+    completed = 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        for future in as_completed(pool.submit(handle, src) for src in files):
-            status, rel, detail, structured, images_omitted = future.result()
+        for future in as_completed(pool.submit(_timed, src) for src in files):
+            status, rel, detail, structured, images_omitted, elapsed = future.result()
+            completed += 1
+            if progress:
+                print(_progress_line(completed, total, status, rel, detail, elapsed),
+                      file=sys.stderr, flush=True)
             report[status] += 1
             report["images_omitted"] += images_omitted
             if structured:
