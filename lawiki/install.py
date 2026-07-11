@@ -64,6 +64,38 @@ def _verify(cmd: list[str]) -> bool:
         return False
 
 
+def _check_offline() -> None:
+    """断网就绪自检：只查不装，逐项报告 ✓/✗ 与国内替代路径。退出码恒 0。
+    ④⑤查的是 bundle 内 vendor 资产——安装即从此本地拷入已装包，故为"安装后
+    是否离线"的忠实代理。"""
+    _say("—— 离线就绪自检（--check-offline）——")
+    ok_py = sys.version_info >= (3, 11)
+    _say(f"  {'✓' if ok_py else '✗'} Python {sys.version.split()[0]}（需 3.11+）")
+    if _have("uv"):
+        _say("  ✓ uv 在 PATH")
+    else:
+        _say("  ✗ 未找到 uv —— pip install uv -i " + TSINGHUA)
+    _say(f"  {'✓' if _verify(['makeitdown', '--help']) else '✗'} makeitdown 可用")
+    _say(f"  {'✓' if _verify(['rag-retriever', '--help']) else '✗'} rag-retriever 可用")
+
+    rag_pkg = VENDOR / "rag-retriever" / "rag_retriever"
+    models = rag_pkg / "_models"
+    if models.is_dir() and any(models.rglob("*.onnx")):
+        _say("  ✓ embedding 模型离线就绪（vendor 内置 .onnx）")
+    else:
+        _say("  ✗ embedding 首次建索引将联网下载（境外 HuggingFace）——"
+             "设 HF_ENDPOINT=https://hf-mirror.com，或改用 -offline 发布包")
+    tk = rag_pkg / "_tiktoken"
+    if tk.is_dir() and any(tk.iterdir()):
+        _say("  ✓ 分词表离线就绪（vendor 内置 tiktoken BPE）")
+    else:
+        _say("  ✗ 分词首次将联网拉取（境外 blob，国内常慢）——用 -offline 发布包避免")
+
+    _say("  提示：reranker（RAG_RERANK=local）默认关闭，开启需联网下载；")
+    _say("        ollama 后端拉模型走境外 registry，国内建议 local（内置）或 openai（硅基流动）；")
+    _say("        MinerU 互校默认已从 ModelScope（魔搭）拉权重，国内首用无需 HuggingFace。")
+
+
 def main(argv: list[str]) -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # Windows 重定向默认 GBK
@@ -75,7 +107,13 @@ def main(argv: list[str]) -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--skip-makeitdown", action="store_true")
     p.add_argument("--skip-rag", action="store_true")
+    p.add_argument("--check-offline", action="store_true",
+                   help="只查不装：报告离线就绪状态（Python/uv/命令/vendored 模型与分词表）")
     args = p.parse_args(argv[1:])
+
+    if args.check_offline:
+        _check_offline()
+        return 0
 
     results: list[tuple[str, str]] = []  # (部件, 状态)
 
@@ -86,6 +124,7 @@ def main(argv: list[str]) -> int:
     if not _have("uv"):
         _say("⚠ 未找到 uv（安装 makeitdown/rag-retriever 需要它）。")
         _say("  Windows: winget install astral-sh.uv ；macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh")
+        _say("  或（国内推荐）: pip install uv -i " + TSINGHUA)
         _say("  装好 uv 后重跑本脚本；在此之前 RAG/转换不可用，但 lawiki 核心仍可用预转的 _md/。")
         return 0
 
