@@ -18,7 +18,7 @@
 
 ## 首次使用（自动配环境）
 
-第一次用时，agent 会照 `skill/lawiki/references/setup.md` 引导你配好环境：检测 Python / makeitdown → **让你选 OCR 方式（本地 vs 云端，附优缺点对比）** → 云端给出[百度 AI Studio](https://aistudio.baidu.com/)申请 token 的网址 → 安装（并明确告诉你"正在安装环境…"）→ 最后告诉你用哪些话激活它。lawiki 自带的校验工具（`lint/`）零第三方依赖，只要有 Python 即可。
+第一次用时，agent 会照 `skill/lawiki/references/setup.md` 引导你配好环境：检测 Python / makeitdown → **让你选 OCR 方式（本地 vs 云端，附优缺点对比）** → 云端给出[百度 AI Studio](https://aistudio.baidu.com/paddleocr)申请 token 的网址 → 安装（并明确告诉你"正在安装环境…"）→ 最后告诉你用哪些话激活它。lawiki 自带的校验工具（`lint/`）零第三方依赖，只要有 Python 即可。
 
 ## 结构（一个自包含 skill）
 

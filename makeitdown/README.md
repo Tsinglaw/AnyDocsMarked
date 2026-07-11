@@ -34,7 +34,7 @@ pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
 | | 本地版 | 云端版 |
 |---|---|---|
 | 联网 | 转换时**不需要** | 需要 |
-| 账号 / token | **不需要**，装完即用 | 需去[百度 AI Studio](https://aistudio.baidu.com/)拿 token |
+| 账号 / token | **不需要**，装完即用 | 需去[百度 AI Studio](https://aistudio.baidu.com/paddleocr)拿 token |
 | 隐私 | 文档**不出本机** | 文档上传到百度服务器 |
 | 费用 | 免费 | 可能按量计费 |
 | 体积 / 速度 | 大（几百 MB），转换较慢 | 小、装得快、转换较快 |

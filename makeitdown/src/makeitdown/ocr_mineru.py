@@ -9,6 +9,7 @@ of markdown that read_mineru_markdown() turns into one string.
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import subprocess
 import tempfile
@@ -67,11 +68,18 @@ class MinerULocal:
         Integration point — verify the flags against the installed mineru version
         (`mineru --help`). As documented: `mineru -p <input> -o <output> -b pipeline`.
         Surfaces the CLI's stderr on failure so the cause isn't swallowed.
+
+        Model weights default to ModelScope (魔搭, domestic) so the first run works
+        in mainland China without reaching HuggingFace. The user can override by
+        setting MINERU_MODEL_SOURCE (huggingface | modelscope | local) themselves.
+        Verify the env var name against the installed mineru version.
         """
+        env = {**os.environ}
+        env.setdefault("MINERU_MODEL_SOURCE", "modelscope")
         try:
             subprocess.run(
                 ["mineru", "-p", str(path), "-o", str(out_dir), "-b", self.backend],
-                check=True, capture_output=True, text=True,
+                check=True, capture_output=True, text=True, env=env,
             )
         except subprocess.CalledProcessError as e:
             detail = (e.stderr or e.stdout or "").strip()
