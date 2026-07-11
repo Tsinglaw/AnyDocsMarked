@@ -45,6 +45,8 @@ wiki/
 
 在案件目录执行 `makeitdown 原始资料 -o _md`。转换后读 `_md/report.json`，留意 `warned`/`failed`/`skipped`。失败或跳过的文件**不要凭空补内容**，按缺失处理并告知用户。
 
+**长任务模式（批量含扫描件 / 走云端 OCR）**：文件多于 ~20 个或含大量扫描件时，转换可能几十分钟。makeitdown 会逐文件把进度打到 stderr（`[k/N] ✓/⚠/✗ 路径`）。**后台运行并落日志**（Claude Code 用 Bash 的后台模式——完成时 harness 会自动唤醒你；其他 agent 用 `nohup makeitdown 原始资料 -o _md > convert.log 2>&1 &` 等价形式），期间可 tail 日志按进度向用户播报；**以进程退出 + `_md/report.json` 出现为完成信号**，完成后读 report.json 向用户汇总 succeeded/warned/failed/skipped 四类计数与需注意项。中断或掉线后加 `--skip-existing` 重跑即断点续传。
+
 ## 第二步半：索引 `_md/` → `.rag/`（确定性，可选可降级）
 
 装了 rag-retriever 就建索引，支撑后续交叉验证问答：
