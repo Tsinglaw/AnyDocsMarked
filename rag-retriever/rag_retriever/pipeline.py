@@ -189,4 +189,7 @@ class Retriever:
             "data_dir": str(self.cfg.data_dir),
             "documents": len(self.store.list_sources()),
             "chunks": self.store.count(),
+            # BM25 health — search_text degrades to [] silently, so this is the
+            # visible signal that "hybrid" has quietly become vector-only.
+            "fts": self.store.fts_status(),
         }

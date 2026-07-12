@@ -18,6 +18,10 @@ _TABLE = "chunks"
 
 
 def _escape(value: str) -> str:
+    # LanceDB predicates are DataFusion SQL: in a standard single-quoted string
+    # literal the only metacharacter is the quote itself ('' escape); backslash
+    # (Windows paths) is literal. Sufficient as long as values are interpolated
+    # into '...' literals only.
     return value.replace("'", "''")
 
 
@@ -120,6 +124,9 @@ class VectorStore:
             if metas and i < len(metas):
                 row_meta.update(metas[i])
             row = {
+                # id is a human-readable label, never parsed back — lookups and
+                # deletes go through the `source` column, so a source containing
+                # "::" is display-ambiguous but functionally harmless.
                 "id": f"{source}::{i}", "source": source, "ord": i,
                 "text": chunk,
                 "meta": json.dumps(row_meta, ensure_ascii=False),
@@ -177,6 +184,16 @@ class VectorStore:
             return "text_tokens" in tbl.schema.names
         except Exception:
             return False
+
+    def fts_status(self) -> dict:
+        """BM25 health: {"column": .., "index": ..}. `column` = the schema carries
+        text_tokens (legacy indexes lack it); `index` = the FTS index is actually
+        built. search_text degrades to [] silently in both cases, which quietly
+        turns hybrid search into vector-only — this is where that state becomes
+        visible (surfaced via stats())."""
+        has_col = self.has_fts()
+        return {"column": has_col,
+                "index": has_col and self._has_fts_index(self._table())}
 
     def _has_fts_index(self, tbl) -> bool:
         """Whether an FTS index over text_tokens exists (lancedb returns [] rather

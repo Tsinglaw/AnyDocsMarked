@@ -38,3 +38,14 @@ def test_stats_reports_index_time_and_live_query_model(tmp_path):
     s = r2.stats()
     assert (s["index_backend"], s["index_model"]) == ("ollama", "model-A")
     assert (s["query_backend"], s["query_model"]) == ("local", "model-B")
+
+
+def test_stats_exposes_fts_health(tmp_path):
+    # Before indexing: no table at all -> both signals false.
+    r = make_retriever(tmp_path, embed_model="fake", embed_backend="local")
+    assert r.stats()["fts"] == {"column": False, "index": False}
+
+    # After a batch index: schema has text_tokens AND the FTS index is built,
+    # so a hybrid consumer can trust BM25 is actually in play.
+    r.index_path(_doc(tmp_path), source_root=tmp_path)
+    assert r.stats()["fts"] == {"column": True, "index": True}
