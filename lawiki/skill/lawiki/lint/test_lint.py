@@ -206,20 +206,23 @@ def test_load_skips_halfwidth_colon_accepted(tmp_path):
 
 # ---- ⑤ 覆盖率（警告） ----
 
-def test_unresolved_source_warns(tmp_path):
+def _coverage_case(tmp_path: Path) -> Path:
+    """最小覆盖率场景：cited.md 被引用，draft.md 未处置。"""
     _write(tmp_path / "_md" / "cited.md", "甲乙")
     _write(tmp_path / "_md" / "draft.md", "草稿")
     _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
-    _, viol, warn, cov = scan_case(tmp_path)
+    return tmp_path
+
+
+def test_unresolved_source_warns(tmp_path):
+    _, viol, warn, cov = scan_case(_coverage_case(tmp_path))
     assert viol == []
     assert warn == ["[未处置] _md/draft.md"]
     assert cov == {"total": 2, "cited": 1, "skipped": 0, "unresolved": 1}
 
 
 def test_registered_skip_silences_warning(tmp_path):
-    _write(tmp_path / "_md" / "cited.md", "甲乙")
-    _write(tmp_path / "_md" / "draft.md", "草稿")
-    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
+    _coverage_case(tmp_path)
     _write(tmp_path / "wiki" / "log.md",
            "## [2026-07-12] skip | _md/draft.md\n- 原因：红线对比版\n")
     _, viol, warn, cov = scan_case(tmp_path)
@@ -249,9 +252,7 @@ def test_cited_wins_over_registration(tmp_path):
 
 def test_check_cli_prints_coverage_summary(tmp_path, capsys):
     from lint import main
-    _write(tmp_path / "_md" / "cited.md", "甲乙")
-    _write(tmp_path / "_md" / "draft.md", "草稿")
-    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
+    _coverage_case(tmp_path)
     assert main(["lint.py", "check", str(tmp_path)]) == 0  # 仅覆盖率警告不影响退出码
     out = capsys.readouterr().out
     assert "覆盖率：2 源文件 | 已引用 1 | 登记跳过 0 | 未处置 1" in out

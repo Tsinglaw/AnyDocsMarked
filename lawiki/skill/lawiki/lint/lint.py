@@ -54,6 +54,11 @@ def norm(s: str) -> str:
     return norm_with_map(s)[0]
 
 
+def _posix(s: str) -> str:
+    """路径统一到 POSIX 形态——锚点、跳过账本、覆盖率共用同一坐标系。"""
+    return s.replace("\\", "/")
+
+
 # ───────────────────────── 公共正则 ─────────────────────────
 
 ANCHOR_RE = re.compile(r"〔来源:\s*(.+?)：「(.+?)」〕")
@@ -64,6 +69,8 @@ ALIASES_RE = re.compile(r"aliases:\s*\[(.*?)\]")
 CHECK_RE = re.compile(r">\s*\[!check\]\s*(.+)")
 _NUM_PUNCT = str.maketrans({"，": ",", "＋": "+", "－": "-", "×": "*", "＝": "="})
 _LEAD = re.compile(r"^\s*(?:[-*+]\s+)?")  # 列表项前导符
+SKIP_RE = re.compile(r"^##\s*\[\d{4}-\d{2}-\d{2}\]\s*skip\s*\|\s*(.+?)\s*$")  # log.md 跳过条目
+REASON_RE = re.compile(r"^\s*-\s*原因[:：](.*)$")
 
 
 def _fragments(snippet: str) -> list[str]:
@@ -217,10 +224,6 @@ def _check_closures(pages: list[tuple[Path, str, str]]) -> list[str]:
     return violations
 
 
-SKIP_RE = re.compile(r"^##\s*\[\d{4}-\d{2}-\d{2}\]\s*skip\s*\|\s*(.+?)\s*$")
-REASON_RE = re.compile(r"^\s*-\s*原因[:：](.*)$")
-
-
 def _load_skips(root: Path) -> dict[str, bool]:
     """解析 wiki/log.md 的 skip 条目（覆盖率账本）：
     `## [YYYY-MM-DD] skip | <路径>` + 条目正文 `- 原因：<非空理由>`。
@@ -234,7 +237,7 @@ def _load_skips(root: Path) -> dict[str, bool]:
     for line in log.read_text(encoding="utf-8").splitlines():
         m = SKIP_RE.match(line)
         if m:
-            cur = m.group(1).replace("\\", "/")
+            cur = _posix(m.group(1))
             skips.setdefault(cur, False)
             continue
         if line.startswith("#"):  # 任何其他标题都结束当前 skip 条目的正文
@@ -256,11 +259,12 @@ def _check_coverage(root: Path, cited: set[str]) -> tuple[list[str], dict[str, i
     md_dir = root / "_md"
     if not md_dir.is_dir():
         return warnings, stats
-    cited_norm = {c.replace("\\", "/") for c in cited}
+    cited_norm = {_posix(c) for c in cited}
     skips = _load_skips(root)
-    for f in sorted(md_dir.rglob("*.md")):
+    files = sorted(md_dir.rglob("*.md"))
+    stats["total"] = len(files)
+    for f in files:
         rel = f.relative_to(root).as_posix()
-        stats["total"] += 1
         if rel in cited_norm:
             stats["cited"] += 1
         elif rel in skips:
@@ -303,7 +307,7 @@ def check_answer_anchors(root: Path, text: str, where: str) -> tuple[int, list[s
         # （_check_anchors 走文件系统解析、能穿到 _md/ 外，前缀串却只看开头骗得过）。
         # normpath 收敛 . / .. 后，残留的 .. 只会出现在开头，故判首段是否 _md 即已
         # 封死穿越；顺带给 ./_md/ 这类无害写法摘掉旧前缀检查误报的帽子。
-        if os.path.normpath(rel).replace("\\", "/").split("/")[0] != "_md":
+        if _posix(os.path.normpath(rel)).split("/")[0] != "_md":
             violations.append(
                 f"[闭世界] {where}\n          锚点指向本案 _md/ 之外: {rel}")
     return total, violations
