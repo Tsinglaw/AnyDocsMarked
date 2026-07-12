@@ -71,6 +71,11 @@ python <SKILL_DIR>/tools/rag.py index <案件根目录>
 8. **确定性校验（lint）**：`python <SKILL_DIR>/lint/lint.py check <案件根目录>`，修到 **0 违规**。
 9. **蕴含校验（换实例判官）**：抽取 claim↔引文 → 派全新子代理三分判 → 有界修复 ≤3 轮 → 仍判不过的显著上报用户。
 
+**范围纪律**：默认目标就是上面的"每个 `.md`"。允许分批 / 先做案件主干，但必须：
+- 每轮向用户申报范围——「本轮 ingest n / 登记跳过 m / 待补 k」；
+- 决定跳过的文件（草稿/红线版等）在 `log.md` 写 skip 条目并附原因（格式见 `page-formats.md`），不许以"记入 backlog"等形式静默降格；
+- **ingest 完成的定义 = lint 0 违规 且 覆盖率未处置 = 0**（每个源文件要么被引用、要么登记跳过）；待补清零前不得宣称 ingest 完成。
+
 第 8、9 步细节见 **`references/verification.md`**；页面格式与 Obsidian 约定见 **`references/page-formats.md`**。
 
 ## 案件问答（交叉验证）
