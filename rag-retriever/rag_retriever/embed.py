@@ -7,6 +7,7 @@ model, or similarity is meaningless — switching models requires re-indexing.
 
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -57,7 +58,34 @@ class LocalEmbedder:
                 local_files_only=True,
             )
         else:
-            self._model = TextEmbedding(model_name=model_name)
+            # No vendored copy: fastembed is about to reach out to HuggingFace.
+            # Print the heads-up *before* attempting — a slow/stalled connection
+            # should be understood immediately, not diagnosed after minutes of
+            # silent waiting followed by a timeout. Real incident (LAWIKI-RAG-001):
+            # a user hit this branch unknowingly (installed the non-offline bundle)
+            # and only found out why indexing was hanging/failing after the fact.
+            print(
+                f"[rag-retriever] 未检测到内置 embedding 模型 '{model_name}'，"
+                f"将尝试联网从 HuggingFace 下载……如需完全离线，请改用 "
+                f"anydocsmarked-*-offline.zip 发布包，或设 RAG_EMBED_MODEL_PATH "
+                f"指向已手动搬运到本机的模型目录。",
+                file=sys.stderr, flush=True,  # about to block on network; don't buffer this behind it
+            )
+            # In a network-restricted environment this fails deep inside fastembed/
+            # huggingface_hub as a bare connection-timeout traceback with no
+            # actionable next step — wrap it so the real fix (offline bundle /
+            # mirror / different backend) is visible without reading a stack trace.
+            try:
+                self._model = TextEmbedding(model_name=model_name)
+            except Exception as e:
+                raise RuntimeError(
+                    f"无法下载 embedding 模型 '{model_name}'（{type(e).__name__}: {e}）。"
+                    f"该环境到 HuggingFace（含 HF_ENDPOINT 镜像）疑似不可达。解决：① 换用 "
+                    f"anydocsmarked-*-offline.zip 发布包（内置模型，索引零下载）；② 设环境变量 "
+                    f"HF_ENDPOINT=https://hf-mirror.com（或其他可达镜像）后重试；③ 设 "
+                    f"RAG_EMBED_MODEL_PATH 指向手动搬运到本机的模型目录；④ 换后端 "
+                    f"RAG_EMBED_BACKEND=ollama/openai（见 setup.md）。"
+                ) from e
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [v.tolist() for v in self._model.embed(texts)]

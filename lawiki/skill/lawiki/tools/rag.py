@@ -107,10 +107,17 @@ def _rag_base() -> list[str]:
 
 
 def _run_rag(data_dir: Path, args: list[str]) -> subprocess.CompletedProcess | None:
-    """跑一条 rag-retriever 子命令。未装（命令找不到）→ None（触发降级）。"""
+    """跑一条 rag-retriever 子命令。未装（命令找不到）→ None（触发降级）。
+
+    ``errors="replace"``：子进程崩溃时的 traceback 可能混入非 UTF-8 字节
+    （如 Windows 系统调用错误信息按本机代码页而非 UTF-8 写出）——严格解码会在
+    这里直接抛 UnicodeDecodeError，把"取错误详情"这一步自己先炸了，吞掉本该
+    看到的报错。宁可片段被替换成 �，也不能整条诊断信息丢失。
+    """
     cmd = [*_rag_base(), "--data-dir", str(data_dir), *args]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return None
 
@@ -121,6 +128,25 @@ def _paths(case: Path) -> tuple[Path, Path]:
 
 def _degrade(reason: str) -> dict:
     return {"rag_available": False, "reason": f"{reason}——问答退化为仅 wiki。"}
+
+
+def _proc_error(proc: subprocess.CompletedProcess) -> str:
+    """非零退出时的错误详情，恒非空——stderr/stdout 都空（子进程被外部杀死/
+    未刷新缓冲）时给出可诊断的退出码兜底，而不是让调用方看见一个空字符串。"""
+    detail = (proc.stderr or proc.stdout).strip()
+    if detail:
+        return detail
+    return f"rag-retriever 退出码 {proc.returncode}，但未捕获到任何输出（可能被外部终止，或子进程未及时刷新 stderr）；建议在终端直接重跑同一条命令复现完整报错。"
+
+
+def _with_notice(result: dict, proc: subprocess.CompletedProcess) -> dict:
+    """成功路径也带上 stderr——rag-retriever 会在此打印非致命提示（如"未检测到
+    内置模型，将联网下载"），subprocess capture_output 下这些提示原本无声丢失；
+    带上后 agent 才能把它转告用户，而不是等真出问题了才看见。"""
+    notice = proc.stderr.strip()
+    if notice:
+        result["notice"] = notice
+    return result
 
 
 def index_case(case: Path) -> dict:
@@ -135,11 +161,12 @@ def index_case(case: Path) -> dict:
     if proc is None:
         return {"ok": False, "reason": "未安装 rag-retriever（或不在 PATH / LAWIKI_RAG_CMD）"}
     if proc.returncode != 0:
-        return {"ok": False, "reason": (proc.stderr or proc.stdout).strip()}
+        return {"ok": False, "reason": _proc_error(proc)}
     try:
-        return {"ok": True, **json.loads(proc.stdout)}
+        result = {"ok": True, **json.loads(proc.stdout)}
     except ValueError:
-        return {"ok": True, "raw": proc.stdout.strip()}
+        result = {"ok": True, "raw": proc.stdout.strip()}
+    return _with_notice(result, proc)
 
 
 def search_case(case: Path, query: str, k: int = 8) -> dict:
@@ -165,12 +192,12 @@ def search_case(case: Path, query: str, k: int = 8) -> dict:
     if proc is None:
         return _degrade("未安装 rag-retriever")
     if proc.returncode != 0:
-        return _degrade((proc.stderr or proc.stdout).strip())
+        return _degrade(_proc_error(proc))
     try:
         hits = json.loads(proc.stdout)
     except ValueError:
         hits = []
-    return {"rag_available": True, "hits": [enrich_hit(h) for h in hits]}
+    return _with_notice({"rag_available": True, "hits": [enrich_hit(h) for h in hits]}, proc)
 
 
 # ───────────────────────── CLI ─────────────────────────

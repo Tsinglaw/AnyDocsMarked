@@ -4,6 +4,8 @@
 锁住纯逻辑：锚点拼装、quality→未核验、模型一致性判定、当前模型解析。
 关键一条：wrapper 拼出的锚点喂给**真实 lint** 必须 0 违规——证明问答引用机器可校验。
 """
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -139,6 +141,105 @@ class ModelStatusTests(unittest.TestCase):
             "query_backend": "ollama", "query_model": "new"})
         self.assertFalse(ok)
         self.assertIn("不一致", reason)
+
+
+class ProcErrorTests(unittest.TestCase):
+    # 真实事故（LAWIKI-RAG-001）：embedding 下载超时时子进程非零退出，但 stderr/
+    # stdout 都捕不到内容——旧版 (stderr or stdout).strip() 直接返回 ""，排障时
+    # 看不到任何有效信息。锁住"恒非空、带退出码"的兜底。
+    def _proc(self, returncode, stdout="", stderr=""):
+        return subprocess.CompletedProcess(
+            args=["rag-retriever"], returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def test_stderr_used_when_present(self):
+        detail = rag._proc_error(self._proc(1, stderr="ConnectTimeout: ..."))
+        self.assertEqual(detail, "ConnectTimeout: ...")
+
+    def test_stdout_used_when_stderr_empty(self):
+        detail = rag._proc_error(self._proc(1, stdout="traceback on stdout"))
+        self.assertEqual(detail, "traceback on stdout")
+
+    def test_both_empty_yields_diagnosable_fallback_not_blank(self):
+        detail = rag._proc_error(self._proc(1))
+        self.assertNotEqual(detail.strip(), "")
+        self.assertIn("1", detail)  # 退出码可见
+
+
+class RunRagDecodeSafetyTests(unittest.TestCase):
+    # real subprocess.run(..., encoding="utf-8") without errors="replace" raises
+    # UnicodeDecodeError on non-UTF-8 bytes (e.g. a Windows OS error message in
+    # the system codepage), which would abort index_case before it can even
+    # build a reason. errors="replace" is what keeps that path from crashing.
+    def test_run_rag_passes_replace_errors_to_subprocess(self):
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured.update(kw)
+            return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+        orig = rag.subprocess.run
+        rag.subprocess.run = fake_run
+        try:
+            rag._run_rag(Path("/tmp/x"), ["stats"])
+        finally:
+            rag.subprocess.run = orig
+        self.assertEqual(captured.get("errors"), "replace")
+
+
+class NoticeSurfacingTests(unittest.TestCase):
+    # Real incident (LAWIKI-RAG-001): rag-retriever prints a non-fatal heads-up
+    # to stderr ("no vendored model, downloading over network") before a slow/
+    # failing embedding download. capture_output=True means that text is
+    # silently discarded unless the success path explicitly surfaces it.
+    def test_with_notice_adds_key_when_stderr_present(self):
+        proc = subprocess.CompletedProcess([], 0, stdout="", stderr="heads up\n")
+        result = rag._with_notice({"ok": True}, proc)
+        self.assertEqual(result["notice"], "heads up")
+
+    def test_with_notice_omits_key_when_stderr_empty(self):
+        proc = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        result = rag._with_notice({"ok": True}, proc)
+        self.assertNotIn("notice", result)
+
+    def test_index_case_surfaces_notice_on_success(self):
+        case = Path(tempfile.mkdtemp())
+        (case / "_md").mkdir()
+
+        def fake_run(cmd, **kw):
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"files_indexed": 1}',
+                stderr="[rag-retriever] 未检测到内置 embedding 模型，将尝试联网下载……")
+
+        orig = rag.subprocess.run
+        rag.subprocess.run = fake_run
+        try:
+            result = rag.index_case(case)
+        finally:
+            rag.subprocess.run = orig
+        self.assertTrue(result["ok"])
+        self.assertIn("未检测到内置", result["notice"])
+
+    def test_search_case_surfaces_notice_on_success(self):
+        case = Path(tempfile.mkdtemp())
+        (case / ".rag").mkdir()
+
+        def fake_run(cmd, **kw):
+            if "stats" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({
+                    "index_backend": "local", "index_model": "m",
+                    "query_backend": "local", "query_model": "m"}), stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="[]",
+                stderr="[rag-retriever] 未检测到内置 embedding 模型，将尝试联网下载……")
+
+        orig = rag.subprocess.run
+        rag.subprocess.run = fake_run
+        try:
+            result = rag.search_case(case, "问题")
+        finally:
+            rag.subprocess.run = orig
+        self.assertTrue(result["rag_available"])
+        self.assertIn("未检测到内置", result["notice"])
 
 
 if __name__ == "__main__":

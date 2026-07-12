@@ -48,6 +48,14 @@ python <SKILL_DIR>/tools/rag.py search <案件根> "<问题>" -k 8
 - `anchor`：现成的 lawiki 锚点（**单行**、已去前导 frontmatter、可疑来源带「（未核验）」）——**lint 可验**，可直接落进 wiki。通常你应把片段缩到具体支撑句（一条断言 ← 一条能完整支持它的引文）。
 - `k≥8` 防假冲突：先凑够上下文再判，别把「RAG 没检索到」误判成「矛盾」。
 
+## 提示（`notice`，成功路径也可能出现，务必转告用户）
+
+`index`/`search` 成功时若带 `"notice": "..."`，是 rag-retriever 打到 stderr 的**非致命**提示——
+最常见的是「未检测到内置 embedding 模型，将联网下载」（源码包首次索引、embedding
+后端选了 `local` 但没走 `-offline` 发布包时触发）。**看到就转告用户**：断网/受限
+网络环境下这条提示往往就是随后失败的前兆，此时改用 `-offline` 发布包能让索引
+零下载完全离线，比等下载超时后再排障快得多。
+
 ## 降级（任一不满足即退化「仅 wiki」，并明确告知用户）
 
 `search` 返回 `{"rag_available": false, "reason": "..."}`（退出码仍 0，供分流）的三种情形：
