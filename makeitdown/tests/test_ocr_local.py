@@ -1,4 +1,3 @@
-from pathlib import Path
 import makeitdown.ocr_local as ol
 from makeitdown.models import ConversionResult
 

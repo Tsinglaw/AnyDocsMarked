@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 import makeitdown.pipeline as pl
 import makeitdown.pipeline as pipeline_mod
 from makeitdown.models import ConversionResult, LegacyConversionUnavailable

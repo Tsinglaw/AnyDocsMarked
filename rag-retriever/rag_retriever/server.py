@@ -12,7 +12,7 @@ from dataclasses import replace
 
 from mcp.server.fastmcp import FastMCP
 
-from .config import Config, split_csv
+from .config import split_csv
 from .pipeline import Retriever
 
 mcp = FastMCP("rag-retriever")

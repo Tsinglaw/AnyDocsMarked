@@ -6,7 +6,6 @@ which pulls a tiktoken BPE file at import time.
 
 from __future__ import annotations
 
-import json
 
 import pytest
 

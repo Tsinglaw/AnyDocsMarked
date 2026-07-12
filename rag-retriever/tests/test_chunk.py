@@ -8,7 +8,7 @@ therefore never emit an oversized chunk, even when a single indivisible unit
 
 from __future__ import annotations
 
-from rag_retriever.chunk import chunk_text, count_tokens, Chunk, chunk_document, Section, parse_sections
+from rag_retriever.chunk import chunk_text, count_tokens, Chunk, chunk_document, parse_sections
 
 
 def test_short_text_is_one_chunk():

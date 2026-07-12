@@ -8,35 +8,61 @@ on:
     branches: [main]
   pull_request:
 
+# Windows is in every matrix because it is the primary user platform (lawyers'
+# desktops): COM conversion, GBK console encoding, and path-separator handling
+# only break there — ubuntu-only CI would never see those bugs.
+# Coverage rides the ubuntu leg of each matrix (report-only, no threshold) so
+# every suite has exactly one canonical pytest command — a separate coverage
+# job would duplicate the runs and drift out of sync with what CI gates.
 jobs:
   lawiki:
     # Zero-dependency stdlib core: no install needed beyond pytest itself.
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest
-      - run: python -m pytest skill/lawiki -q
+      - run: pip install pytest pytest-cov
+      - run: python -m pytest skill/lawiki scripts -q ${{ matrix.os == 'ubuntu-latest' && '--cov=skill/lawiki --cov-report=term-missing' || '' }}
         working-directory: lawiki
 
   makeitdown:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       # 3.12 satisfies requires-python (>=3.11,<3.13). The `dev` extra pulls
       # pytest; `local` (paddle) is intentionally omitted — OCR tests mock it.
-      - run: uv run --python 3.12 --extra dev python -m pytest tests -q
+      - run: uv run --python 3.12 --extra dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=makeitdown --cov-report=term-missing' || '' }}
         working-directory: makeitdown
 
   rag-retriever:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       # The `dev` dependency-group provides pytest; a FakeEmbedder in conftest
       # keeps the suite from downloading any embedding model.
-      - run: uv run --python 3.12 --group dev python -m pytest tests -q
+      - run: uv run --python 3.12 --group dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=rag_retriever --cov-report=term-missing' || '' }}
         working-directory: rag-retriever
+
+  # Style gate: pyflakes-level errors only (undefined names, unused imports,
+  # syntax). Deliberately not a full style ruleset — the repo has no formatter
+  # convention to enforce; this catches real bugs, not bikeshed. Repo-wide so
+  # new subprojects/dirs join the gate without editing this line.
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx ruff check --select E9,F .

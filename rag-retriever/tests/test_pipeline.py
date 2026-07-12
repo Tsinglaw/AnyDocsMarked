@@ -1,8 +1,5 @@
-from pathlib import Path
 
-import pytest
 
-from rag_retriever.chunk import Chunk
 from rag_retriever import pipeline as pipeline_mod
 from rag_retriever.pipeline import _rrf_fuse
 from rag_retriever.config import Config
