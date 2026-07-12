@@ -26,7 +26,7 @@ PDF 是否走 OCR：用 PyMuPDF 检测文字层——每页平均可提取字符
 需要 **Python 3.11 或 3.12**；用本地版的话建议 **3.11**（PaddlePaddle 对 3.11 支持最稳）。先有 Python 再装 uv：
 
 ```bash
-pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install uv -i https://mirrors.aliyun.com/pypi/simple
 ```
 
 然后**二选一**——两个版本的区别：
@@ -41,24 +41,24 @@ pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 ```bash
 # 本地版（离线、免费、私密；体积大）
-uv tool install --python 3.11 --index https://pypi.tuna.tsinghua.edu.cn/simple \
+uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
   "makeitdown[local] @ git+https://gitee.com/code-lawyer/makeitdown.git"
 
 # 云端版（轻快；需联网 + token）
-uv tool install --python 3.11 --index https://pypi.tuna.tsinghua.edu.cn/simple \
+uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
   "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git"
 ```
 
 装完执行 `makeitdown --help` 验证。命令找不到时运行 `uv tool update-shell` 后开新终端。
 
 说明：
-- 代码走 **Gitee 镜像**、依赖走**清华 PyPI 源**，避开 GitHub/PyPI 在国内的卡顿；PaddleOCR 模型由百度托管，国内下载很快。
+- 代码走 **Gitee 镜像**、依赖走**阿里云 PyPI 镜像**，避开 GitHub/PyPI 在国内的卡顿；PaddleOCR 模型由百度托管，国内下载很快。
 - uv 自动下载 Python 是从 GitHub 拉的，国内可能慢——所以请先备好 Python 3.11；若 uv 仍有问题，用纯 pip 后备：
   ```bash
   pip install "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git" \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple
+    -i https://mirrors.aliyun.com/pypi/simple
   ```
-- **海外用户**：去掉 `--index`/`-i` 参数，并把 `gitee.com` 换成 `github.com`。
+- **海外用户**：去掉 `--index`/`-i` 参数，并把 `gitee.com` 换成 `github.com`。若阿里云镜像本身连不上（罕见），同样去掉 `--index`/`-i` 落回默认 pypi.org。
 
 ## 使用
 
@@ -162,7 +162,7 @@ makeitdown docs --ocr-engine local --structure-headings
 2. **已装的 Word / WPS（Windows）**：真二进制文件，调用本机**已安装**的 Word 或金山 WPS
    转换。需装可选依赖 `makeitdown[com]`（只装 COM 桥，不装 Office）：
    ```bash
-   uv tool install --python 3.11 --index https://pypi.tuna.tsinghua.edu.cn/simple \
+   uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
      "makeitdown[com] @ git+https://gitee.com/code-lawyer/makeitdown.git"
    ```
 3. **LibreOffice（可选）**：若 `soffice` 已在 PATH，则用它转换（跨平台）。makeitdown
@@ -197,7 +197,7 @@ converted_at: 2026-06-15T10:30:00
 git clone https://gitee.com/code-lawyer/makeitdown.git   # 海外用 github.com
 cd makeitdown
 python -m venv .venv
-.venv/Scripts/python -m pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple
+.venv/Scripts/python -m pip install -e ".[dev]" -i https://mirrors.aliyun.com/pypi/simple
 .venv/Scripts/python -m pytest -q
 ```
 

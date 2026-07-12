@@ -34,7 +34,7 @@ tiktoken，云端选项全是国内服务）：
 
 - **提前自备 Python 3.11/3.12**：别依赖 uv 自动下载（那走 GitHub 的
   python-build-standalone，国内常断）。uv 本体用
-  `pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple` 装；若必须让 uv 管
+  `pip install uv -i https://mirrors.aliyun.com/pypi/simple` 装；若必须让 uv 管
   Python，设环境变量 `UV_PYTHON_INSTALL_MIRROR` 指向国内镜像。
 - **内网/涉密三件套**（联网机备好带入内网）：Python 官方安装包 + uv wheel
   （`pip download uv`）+ `-offline` 发布包。进内网后 `python install.py --ocr local`，
@@ -78,20 +78,20 @@ PADDLEOCR_AISTUDIO_TOKEN=<你的token>
 
 ## 第 3 步 · 安装（明确告诉用户「正在安装环境……」）
 
-按所选 OCR 模式装 makeitdown（**大陆走 gitee 镜像 + 清华 PyPI 源**，避开卡顿）：
+按所选 OCR 模式装 makeitdown（**大陆走阿里云 PyPI 镜像**，避开卡顿；清华源在部分云环境/境外网络下会连接超时，阿里云镜像商用 CDN 更稳）：
 
 - **本地版**：
   ```
-  uv tool install --python 3.12 --index https://pypi.tuna.tsinghua.edu.cn/simple "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
+  uv tool install --python 3.12 --index https://mirrors.aliyun.com/pypi/simple "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
   ```
 - **云端版**：
   ```
-  uv tool install --python 3.12 --index https://pypi.tuna.tsinghua.edu.cn/simple "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
+  uv tool install --python 3.12 --index https://mirrors.aliyun.com/pypi/simple "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
   ```
 - **缺 Python / uv**：先装 uv（Windows：`winget install astral-sh.uv`；macOS/Linux：`curl -LsSf https://astral.sh/uv/install.sh | sh`），uv 能顺带备好 Python。装系统软件可能要权限——装不动就把命令交给用户自己跑，别硬来。
 - **本 skill 的校验（lint）**：零依赖，只要有 Python 即可，**无需安装**。
 - `--python 3.12` 不可省：makeitdown 要求 `>=3.11,<3.13`，默认 3.13+ 的机器不钉版本会装失败。
-- `--index 清华源` 仅为大陆加速依赖下载；海外可去掉。git 源已用 GitHub。
+- `--index 阿里云镜像` 仅为大陆加速依赖下载；海外可去掉。若这条也连不上（罕见），去掉 `--index` 让 uv 落回默认 pypi.org。git 源已用 GitHub。
 
 装完用 `makeitdown --help` 验证；提示用户命令找不到时跑 `uv tool update-shell` 后开新终端。
 
@@ -99,9 +99,9 @@ PADDLEOCR_AISTUDIO_TOKEN=<你的token>
 
 支撑交叉验证问答。装与不装都行——不装则问答退化「仅 wiki」，核心（wiki + lint）零依赖不受影响。细节见 `rag.md`。
 
-**装 rag-retriever**（让 `rag-retriever` 进 PATH；大陆走清华源加速依赖）：
+**装 rag-retriever**（让 `rag-retriever` 进 PATH；大陆走阿里云镜像加速依赖）：
 ```
-uv tool install --python 3.12 --index https://pypi.tuna.tsinghua.edu.cn/simple "rag-retriever @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=rag-retriever"
+uv tool install --python 3.12 --index https://mirrors.aliyun.com/pypi/simple "rag-retriever @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=rag-retriever"
 ```
 （开发期也可不装、用环境变量 `LAWIKI_RAG_CMD='uv run --project "<本地路径>" rag-retriever'` 指向本地仓库，见 `rag.md`。海外可去掉 `--index`。）
 

@@ -42,16 +42,16 @@ Tell the user honestly: **Local is usually the most hassle-free for a non-techni
 GitHub and PyPI are slow/flaky from China; build the install around domestic mirrors:
 
 - **Code** is installed from a **Gitee mirror**, not GitHub: `git+https://gitee.com/code-lawyer/makeitdown.git`. (Replace `code-lawyer` with the actual Gitee username if it differs.)
-- **Python dependencies** are pulled from the **Tsinghua PyPI mirror**: `https://pypi.tuna.tsinghua.edu.cn/simple`.
+- **Python dependencies** are pulled from the **Aliyun PyPI mirror**: `https://mirrors.aliyun.com/pypi/simple`. (Tsinghua's academic mirror also works from mainland China but has been flaky/unreachable from some cloud/overseas agent environments — Aliyun's commercial CDN is more consistently reachable. If Aliyun also fails, drop `--index`/`-i` entirely and let pip/uv fall back to the default pypi.org.)
 - **PaddleOCR models** (Local edition) download from Baidu's domestic servers — these are fast in China, no mirror needed.
 - **uv's own auto-download of Python comes from GitHub** and may stall in China. So prefer an already-installed Python 3.11; only fall back to uv-managed Python if the machine has none.
 
 ### Step 2 — Make sure Python 3.11 and uv are present
 
-1. **Python 3.11** (the package needs ≥3.11, <3.13). Check `python --version`. If it's not 3.11/3.12, have the user install Python 3.11 via a domestic-friendly route (e.g. Miniconda from the Tsinghua mirror, or python.org). Relying on an existing interpreter avoids uv fetching Python from GitHub.
-2. **uv** — install it from the Tsinghua mirror (avoids astral.sh):
+1. **Python 3.11** (the package needs ≥3.11, <3.13). Check `python --version`. If it's not 3.11/3.12, have the user install Python 3.11 via a domestic-friendly route (e.g. Miniconda from a domestic mirror, or python.org). Relying on an existing interpreter avoids uv fetching Python from GitHub.
+2. **uv** — install it from the Aliyun mirror (avoids astral.sh):
    ```bash
-   pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+   pip install uv -i https://mirrors.aliyun.com/pypi/simple
    ```
 
 ### Step 3 — Install the chosen edition
@@ -62,28 +62,30 @@ fetch needed. From inside that folder:
 
 ```bash
 # Local edition
-pip install ".[local]" -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install ".[local]" -i https://mirrors.aliyun.com/pypi/simple
 # Cloud edition
-pip install "." -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install "." -i https://mirrors.aliyun.com/pypi/simple
 ```
 
-**Otherwise, install from the remote** (Gitee source + Tsinghua mirror). Run **one** of these:
+**Otherwise, install from the remote** (Gitee source + Aliyun mirror). Run **one** of these:
 
 - **本地版 (Local):**
   ```bash
-  uv tool install --python 3.11 --index https://pypi.tuna.tsinghua.edu.cn/simple "makeitdown[local] @ git+https://gitee.com/code-lawyer/makeitdown.git"
+  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown[local] @ git+https://gitee.com/code-lawyer/makeitdown.git"
   ```
   This pulls PaddleOCR + PaddlePaddle (a large download) — tell the user it may take several minutes. PaddleOCR models download on first conversion (from Baidu, fast in China).
 
 - **云端版 (Cloud):**
   ```bash
-  uv tool install --python 3.11 --index https://pypi.tuna.tsinghua.edu.cn/simple "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git"
+  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git"
   ```
 
 If uv gives trouble, the plain-pip fallback (needs an existing Python 3.11) works the same way:
 ```bash
-pip install "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git" -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git" -i https://mirrors.aliyun.com/pypi/simple
 ```
+
+If the mirror itself is unreachable (e.g. some cloud/overseas agent sandboxes can't reach it), drop `--index`/`-i` and let pip/uv fall back to the default pypi.org.
 
 Confirm it worked: `makeitdown --help`. If the command isn't on PATH yet, run `uv tool update-shell` (then open a new shell) or invoke it via `uv tool run --from makeitdown makeitdown ...`.
 
@@ -233,8 +235,8 @@ MUST be transparent with the user:
 - **Relay the skip report.** Files that couldn't be converted appear in
   `report.json` under `skipped` with a `reason`. Read those reasons back to the
   user so they can choose how to proceed (install WPS/Office, or LibreOffice).
-- The `makeitdown[com]` extra installs from the **Tsinghua PyPI mirror** like the
-  rest (`-i https://pypi.tuna.tsinghua.edu.cn/simple`).
+- The `makeitdown[com]` extra installs from the **Aliyun PyPI mirror** like the
+  rest (`-i https://mirrors.aliyun.com/pypi/simple`).
 
 ## When to use
 
