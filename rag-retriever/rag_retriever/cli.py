@@ -21,8 +21,14 @@ from .pipeline import Retriever
 def main() -> None:
     # Emit UTF-8 regardless of platform locale, so piped JSON stays valid
     # (Windows consoles otherwise default to GBK/cp1252 and corrupt non-ASCII).
+    # stderr too: Chinese error messages (readable RuntimeErrors, the offline
+    # heads-up in embed.py) otherwise get backslashreplace-escaped into
+    # unreadable \uXXXX when a caller captures stderr via a pipe (subprocess
+    # capture_output — exactly what install.py's offline probe and lawiki's
+    # rag.py wrapper both do), defeating the point of making them readable.
     try:
         sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
