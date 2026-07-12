@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 BUNDLE = Path(__file__).resolve().parent
@@ -96,10 +98,53 @@ def _verify(cmd: list[str]) -> bool:
         return False
 
 
+def _rag_cmd() -> list[str]:
+    """lawiki 实际会调用的 rag-retriever 前缀。与 `tools/rag.py` 的 `_rag_base()`
+    同一逻辑，故意重复而非跨文件 import——install.py 在 bundle 根、`tools/rag.py`
+    在 skill 内，两者各自独立可用是设计前提。"""
+    return shlex.split(os.environ.get("LAWIKI_RAG_CMD", "rag-retriever"))
+
+
+def _probe_embed_offline(rag_cmd: list[str]) -> tuple[bool, str]:
+    """跑一次真实的最小 index，验证 lawiki 实际会调用的这个 rag-retriever 运行
+    实例能否离线跑通 embedding + 分词——而不是像旧版那样只查 bundle 内某份
+    源码副本"看起来"带没带模型。那份副本未必是运行时真正用的那份：`_models/`
+    被 `.gitignore` 排除、只在 CI 打 `-offline` 包时才塞进 wheel，`uv tool
+    install "rag-retriever @ git+..."` 装的实例永远拿不到（LAWIKI-RAG-001 的
+    根因——用户 `--check-offline` 显示 ✓，实际运行时联网超时失败）。
+
+    设 HF_HUB_OFFLINE=1 逼真断网：没有 vendored 模型时会立刻报错而非挂起等
+    超时，与用户实测复现所用的方法一致。60 秒超时兜底（正常应几秒内出结果）。
+    """
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        md_dir = td_path / "_md"
+        md_dir.mkdir()
+        (md_dir / "probe.md").write_text(
+            "断网就绪自检探针文本，用于验证 embedding 模型与分词表可离线加载。",
+            encoding="utf-8",
+        )
+        cmd = [*rag_cmd, "--data-dir", str(td_path / ".rag"),
+               "index", str(md_dir), "--source-root", str(td_path)]
+        env = {**os.environ, "HF_HUB_OFFLINE": "1"}
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
+                                  timeout=60, env=env)
+        except FileNotFoundError:
+            return False, "未安装 rag-retriever（或不在 PATH / LAWIKI_RAG_CMD）"
+        except subprocess.TimeoutExpired:
+            return False, "60 秒内未完成——HF_HUB_OFFLINE=1 下不应发生，请人工排查"
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip()
+            return False, detail or f"退出码 {proc.returncode}，无输出"
+        return True, ""
+
+
 def _check_offline() -> None:
     """断网就绪自检：只查不装，逐项报告 ✓/✗ 与国内替代路径。退出码恒 0。
-    ④⑤查的是 bundle 内 vendor 资产——安装即从此本地拷入已装包，故为"安装后
-    是否离线"的忠实代理。"""
+    embedding/分词一项对 lawiki 实际会调用的运行实例做真实探针（见
+    `_probe_embed_offline`），不是查 bundle 内 vendor 资产是否"看起来"带模型。"""
     _say("—— 离线就绪自检（--check-offline）——")
     ok_py = sys.version_info >= (3, 11)
     _say(f"  {'✓' if ok_py else '✗'} Python {sys.version.split()[0]}（需 3.11+）")
@@ -108,20 +153,29 @@ def _check_offline() -> None:
     else:
         _say("  ✗ 未找到 uv —— pip install uv" + _mirror_hint())
     _say(f"  {'✓' if _verify(['makeitdown', '--help']) else '✗'} makeitdown 可用")
-    _say(f"  {'✓' if _verify(['rag-retriever', '--help']) else '✗'} rag-retriever 可用")
 
-    rag_pkg = VENDOR / "rag-retriever" / "rag_retriever"
-    models = rag_pkg / "_models"
-    if models.is_dir() and any(models.rglob("*.onnx")):
-        _say("  ✓ embedding 模型离线就绪（vendor 内置 .onnx）")
+    # 走 _rag_cmd() 而非硬编码 "rag-retriever"：必须测的是 LAWIKI_RAG_CMD 覆盖下
+    # lawiki 实际会调用的那个实例，否则设了覆盖也测不到（同一类"测错实例"的坑）。
+    rag_available = _verify([*_rag_cmd(), "--help"])
+    _say(f"  {'✓' if rag_available else '✗'} rag-retriever 可用")
+
+    backend = os.environ.get("RAG_EMBED_BACKEND", "local").strip() or "local"
+    if not rag_available:
+        _say("  ⏭ embedding/分词离线探针跳过（rag-retriever 不可用）")
+    elif backend != "local":
+        _say(f"  ⏭ embedding 离线探针跳过（RAG_EMBED_BACKEND={backend}，非 local 后端"
+             f"不依赖内置 .onnx 模型；ollama 需本地服务，openai 本就要联网）")
     else:
-        _say("  ✗ embedding 首次建索引将联网下载（境外 HuggingFace）——"
-             "设 HF_ENDPOINT=https://hf-mirror.com，或改用 -offline 发布包")
-    tk = rag_pkg / "_tiktoken"
-    if tk.is_dir() and any(tk.iterdir()):
-        _say("  ✓ 分词表离线就绪（vendor 内置 tiktoken BPE）")
-    else:
-        _say("  ✗ 分词首次将联网拉取（境外 blob，国内常慢）——用 -offline 发布包避免")
+        ok, detail = _probe_embed_offline(_rag_cmd())
+        if ok:
+            _say("  ✓ embedding 模型 + 分词表离线可用（对实际运行实例真实探针验证）")
+        else:
+            _say("  ✗ embedding/分词离线探针失败——lawiki 实际调用的这个 rag-retriever "
+                 "无法离线跑通，首次索引会联网下载。常见原因：用 `uv tool install "
+                 "\"rag-retriever @ git+...\"` 从 GitHub 装的实例永远不带内置模型；"
+                 "改用本脚本从 -offline 发布包安装（不要用 setup.md 里的手动 git 命令），"
+                 "或设 RAG_EMBED_MODEL_PATH 指向已手动搬运的模型目录。")
+            _say(f"     探针详情：{detail}")
 
     _say("  提示：reranker（RAG_RERANK=local）默认关闭，开启需联网下载；")
     _say("        ollama 后端拉模型走境外 registry，国内建议 local（内置）或 openai（硅基流动）；")
@@ -140,7 +194,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("--skip-makeitdown", action="store_true")
     p.add_argument("--skip-rag", action="store_true")
     p.add_argument("--check-offline", action="store_true",
-                   help="只查不装：报告离线就绪状态（Python/uv/命令/vendored 模型与分词表）")
+                   help="只查不装：报告离线就绪状态（Python/uv/命令可用性 + 对实际运行实例"
+                        "做真实 embedding/分词离线探针）")
     args = p.parse_args(argv[1:])
 
     if args.check_offline:

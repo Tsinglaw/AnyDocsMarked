@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest pytest-cov
-      - run: python -m pytest skill/lawiki scripts -q ${{ matrix.os == 'ubuntu-latest' && '--cov=skill/lawiki --cov-report=term-missing' || '' }}
+      - run: python -m pytest skill/lawiki scripts test_install.py -q ${{ matrix.os == 'ubuntu-latest' && '--cov=skill/lawiki --cov-report=term-missing' || '' }}
         working-directory: lawiki
 
   makeitdown:
