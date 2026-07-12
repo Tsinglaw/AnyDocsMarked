@@ -247,6 +247,17 @@ def test_cited_wins_over_registration(tmp_path):
     assert cov == {"total": 1, "cited": 1, "skipped": 0, "unresolved": 0}
 
 
+def test_check_cli_prints_coverage_summary(tmp_path, capsys):
+    from lint import main
+    _write(tmp_path / "_md" / "cited.md", "甲乙")
+    _write(tmp_path / "_md" / "draft.md", "草稿")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
+    assert main(["lint.py", "check", str(tmp_path)]) == 0  # 仅覆盖率警告不影响退出码
+    out = capsys.readouterr().out
+    assert "覆盖率：2 源文件 | 已引用 1 | 登记跳过 0 | 未处置 1" in out
+    assert "[未处置] _md/draft.md" in out
+
+
 def test_stale_skip_entry_silently_ignored(tmp_path):
     # 登记路径在 _md/ 中不存在：不发警告、不进统计（真正漏网的文件仍会以未处置暴露）。
     _write(tmp_path / "_md" / "a.md", "甲乙")

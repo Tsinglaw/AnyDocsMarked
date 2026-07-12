@@ -7,7 +7,8 @@
   python lint.py answer  <案件根目录> <草稿.md>  # 问答交付闸门：锚点全验+闭世界+整篇兜底
 
 check 五类：① 锚点存在（EXTRACTED 硬底线）② 死链 ③ 时间线顺序 ④ 勾稽闭合
-（`> [!check] a+b==c`）⑤ 覆盖率（警告）。只消格式噪声、数字与文字精确——
+（`> [!check] a+b==c`）⑤ 覆盖率（警告，三态：已引用/登记跳过/未处置，账本为
+wiki/log.md 的 skip 条目）。只消格式噪声、数字与文字精确——
 "数字写错/张冠李戴"必被抓、"换行差异"不误报。详见 SKILL.md / references/verification.md。
 """
 import ast
@@ -406,6 +407,8 @@ def main(argv: list[str]) -> int:
             print(e, file=sys.stderr)
             return 2
         print(f"扫描锚点 {total} 个；违规 {len(violations)} 处；警告 {len(warnings)} 处。")
+        print(f"覆盖率：{cov['total']} 源文件 | 已引用 {cov['cited']} | "
+              f"登记跳过 {cov['skipped']} | 未处置 {cov['unresolved']}")
         for v in violations:
             print("  ✗ " + v)
         for w in warnings:
