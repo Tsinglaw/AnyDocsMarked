@@ -165,7 +165,18 @@ class ProcErrorTests(unittest.TestCase):
         self.assertIn("1", detail)  # 退出码可见
 
 
-class RunRagDecodeSafetyTests(unittest.TestCase):
+class _PatchRagRunMixin:
+    """Swap rag.subprocess.run for a fake, auto-restored via addCleanup — same
+    shape as test_install.py's _patch_run, reused here instead of each test
+    hand-rolling its own try/finally save-and-restore."""
+
+    def _patch_run(self, fn):
+        orig = rag.subprocess.run
+        rag.subprocess.run = fn
+        self.addCleanup(lambda: setattr(rag.subprocess, "run", orig))
+
+
+class RunRagDecodeSafetyTests(_PatchRagRunMixin, unittest.TestCase):
     # real subprocess.run(..., encoding="utf-8") without errors="replace" raises
     # UnicodeDecodeError on non-UTF-8 bytes (e.g. a Windows OS error message in
     # the system codepage), which would abort index_case before it can even
@@ -177,16 +188,12 @@ class RunRagDecodeSafetyTests(unittest.TestCase):
             captured.update(kw)
             return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
 
-        orig = rag.subprocess.run
-        rag.subprocess.run = fake_run
-        try:
-            rag._run_rag(Path("/tmp/x"), ["stats"])
-        finally:
-            rag.subprocess.run = orig
+        self._patch_run(fake_run)
+        rag._run_rag(Path("/tmp/x"), ["stats"])
         self.assertEqual(captured.get("errors"), "replace")
 
 
-class NoticeSurfacingTests(unittest.TestCase):
+class NoticeSurfacingTests(_PatchRagRunMixin, unittest.TestCase):
     # Real incident (LAWIKI-RAG-001): rag-retriever prints a non-fatal heads-up
     # to stderr ("no vendored model, downloading over network") before a slow/
     # failing embedding download. capture_output=True means that text is
@@ -210,12 +217,8 @@ class NoticeSurfacingTests(unittest.TestCase):
                 cmd, 0, stdout='{"files_indexed": 1}',
                 stderr="[rag-retriever] 未检测到内置 embedding 模型，将尝试联网下载……")
 
-        orig = rag.subprocess.run
-        rag.subprocess.run = fake_run
-        try:
-            result = rag.index_case(case)
-        finally:
-            rag.subprocess.run = orig
+        self._patch_run(fake_run)
+        result = rag.index_case(case)
         self.assertTrue(result["ok"])
         self.assertIn("未检测到内置", result["notice"])
 
@@ -232,12 +235,8 @@ class NoticeSurfacingTests(unittest.TestCase):
                 cmd, 0, stdout="[]",
                 stderr="[rag-retriever] 未检测到内置 embedding 模型，将尝试联网下载……")
 
-        orig = rag.subprocess.run
-        rag.subprocess.run = fake_run
-        try:
-            result = rag.search_case(case, "问题")
-        finally:
-            rag.subprocess.run = orig
+        self._patch_run(fake_run)
+        result = rag.search_case(case, "问题")
         self.assertTrue(result["rag_available"])
         self.assertIn("未检测到内置", result["notice"])
 

@@ -7,7 +7,7 @@ model, or similarity is meaningless — switching models requires re-indexing.
 
 from __future__ import annotations
 
-import sys
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -15,6 +15,8 @@ from typing import Protocol
 import httpx
 
 from .config import Config
+
+_log = logging.getLogger(__name__)
 
 # Directory where a vendored ONNX copy of the local model is shipped in the
 # release bundle so the first index works offline (no HuggingFace download).
@@ -59,17 +61,23 @@ class LocalEmbedder:
             )
         else:
             # No vendored copy: fastembed is about to reach out to HuggingFace.
-            # Print the heads-up *before* attempting — a slow/stalled connection
+            # Log the heads-up *before* attempting — a slow/stalled connection
             # should be understood immediately, not diagnosed after minutes of
             # silent waiting followed by a timeout. Real incident (LAWIKI-RAG-001):
             # a user hit this branch unknowingly (installed the non-offline bundle)
             # and only found out why indexing was hanging/failing after the fact.
-            print(
-                f"[rag-retriever] 未检测到内置 embedding 模型 '{model_name}'，"
-                f"将尝试联网从 HuggingFace 下载……如需完全离线，请改用 "
-                f"anydocsmarked-*-offline.zip 发布包，或设 RAG_EMBED_MODEL_PATH "
-                f"指向已手动搬运到本机的模型目录。",
-                file=sys.stderr, flush=True,  # about to block on network; don't buffer this behind it
+            # logging (not print to stderr directly): LocalEmbedder is a library
+            # class used from both cli.py and the MCP server (server.py) — a
+            # caller must be able to suppress/redirect this, not just inherit an
+            # unconditional stderr write. With no handler configured (the default
+            # for a library), the stdlib's "handler of last resort" still prints
+            # WARNING+ to stderr, so behavior is unchanged out of the box.
+            _log.warning(
+                "[rag-retriever] 未检测到内置 embedding 模型 '%s'，"
+                "将尝试联网从 HuggingFace 下载……如需完全离线，请改用 "
+                "anydocsmarked-*-offline.zip 发布包，或设 RAG_EMBED_MODEL_PATH "
+                "指向已手动搬运到本机的模型目录。",
+                model_name,
             )
             # In a network-restricted environment this fails deep inside fastembed/
             # huggingface_hub as a bare connection-timeout traceback with no
