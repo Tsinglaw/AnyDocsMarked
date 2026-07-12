@@ -207,3 +207,19 @@ def test_cloud_verifier_with_consent_prints_upload_notice(monkeypatch, tmp_path,
                    "--cross-check-mode", "cloud", "--cloud-consent"])
     assert rc == 0
     assert "上传" in capsys.readouterr().err
+
+
+def test_strict_exits_nonzero_on_failures(monkeypatch, tmp_path):
+    import makeitdown.cli as cli
+    report = _report(succeeded=1, failed=2,
+                     failures=[{"file": "a.pdf", "error": "boom"}])
+    monkeypatch.setattr(cli, "convert_tree", lambda *a, **k: dict(report))
+    monkeypatch.setattr(cli.LocalOCR, "is_available", staticmethod(lambda: True))
+    src = tmp_path / "in"; src.mkdir()
+    # default: partial failure is not fatal (degradation philosophy)
+    assert cli.main([str(src), "--ocr-engine", "local"]) == 0
+    # --strict: scripts/CI can rely on the exit code
+    assert cli.main([str(src), "--ocr-engine", "local", "--strict"]) == 1
+    # --strict with zero failures still exits 0
+    report["failed"] = 0; report["failures"] = []
+    assert cli.main([str(src), "--ocr-engine", "local", "--strict"]) == 0

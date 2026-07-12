@@ -28,10 +28,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workers", type=int, default=os.cpu_count() or 4,
                    help="number of concurrent workers")
     p.add_argument("--skip-existing", action="store_true",
-                   help="skip files whose .md output is newer than the source")
+                   help="skip files whose .md output is newer than the source "
+                        "(mtime-based; drop the flag to force a full re-convert)")
     p.add_argument("--text-threshold", type=int, default=50,
                    help="avg chars/page below which a PDF is treated as scanned")
     p.add_argument("--report", default=None, help="path to report.json")
+    p.add_argument("--strict", action="store_true",
+                   help="exit non-zero if any file failed (for scripts/CI; "
+                        "default keeps exit 0 so a partial batch is not treated as fatal)")
     p.add_argument("--no-quality-check", dest="quality_check", action="store_false",
                    help="disable output quality checks (treat all output as clean)")
     p.add_argument("--keep-images", action="store_true",
@@ -165,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
               f"(see {report_path} for how to convert them).", file=sys.stderr)
     if report["failed"]:
         print(f"See {report_path} for {report['failed']} failure(s).", file=sys.stderr)
+        if args.strict:
+            return 1
     return 0
 
 

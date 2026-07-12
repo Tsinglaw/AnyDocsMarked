@@ -40,6 +40,11 @@ def _iter_files(input_dir: Path) -> list[Path]:
 
 
 def _is_up_to_date(src: Path, md: Path) -> bool:
+    # mtime-based, the same tradeoff make/ninja accept: cheap (stat-only, no
+    # reads) but unreliable after git checkout / directory copies reset mtimes.
+    # Worst case is a wasted re-convert or a stale skip the user clears by
+    # re-running without --skip-existing; content hashing would cost a full
+    # read of every source on every run.
     return md.exists() and md.stat().st_mtime >= src.stat().st_mtime
 
 

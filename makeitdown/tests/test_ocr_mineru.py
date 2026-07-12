@@ -108,7 +108,9 @@ def test_cloud_convert_full_flow(monkeypatch, tmp_path):
         content = zip_bytes
         def raise_for_status(self): pass
 
-    monkeypatch.setattr("makeitdown.ocr_mineru.requests.get", lambda url, timeout=60: _Resp())
+    # The zip download goes through the shared retry helper, which lives in
+    # ocr_cloud and calls that module's requests.get.
+    monkeypatch.setattr("makeitdown.ocr_cloud.requests.get", lambda url, timeout=60: _Resp())
 
     result = eng.convert(f)
     assert "金额八十万元" in result.text

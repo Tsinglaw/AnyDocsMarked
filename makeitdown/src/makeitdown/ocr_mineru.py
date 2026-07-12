@@ -21,6 +21,7 @@ from pathlib import Path
 import requests
 
 from .models import ConversionResult
+from .ocr_cloud import get_with_retries
 
 
 def read_mineru_markdown(out_dir: Path) -> tuple[str, int | None]:
@@ -142,8 +143,8 @@ class MinerUCloud:
     def _poll(self, batch_id: str) -> str:
         start = time.monotonic()
         while True:
-            resp = requests.get(f"{self.BASE}/extract-results/batch/{batch_id}",
-                                headers=self._headers(), timeout=self.request_timeout)
+            resp = get_with_retries(f"{self.BASE}/extract-results/batch/{batch_id}",
+                                    headers=self._headers(), timeout=self.request_timeout)
             if resp.status_code != 200:
                 raise RuntimeError(f"mineru poll failed ({resp.status_code}): {resp.text}")
             items = resp.json()["data"]["extract_result"]
@@ -158,7 +159,7 @@ class MinerUCloud:
             time.sleep(self.poll_interval)
 
     def _fetch_markdown(self, zip_url: str) -> tuple[str, int | None]:
-        resp = requests.get(zip_url, timeout=self.request_timeout)
+        resp = get_with_retries(zip_url, timeout=self.request_timeout)
         resp.raise_for_status()
         with tempfile.TemporaryDirectory() as tmp:
             with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
