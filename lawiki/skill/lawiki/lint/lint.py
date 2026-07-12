@@ -216,6 +216,36 @@ def _check_closures(pages: list[tuple[Path, str, str]]) -> list[str]:
     return violations
 
 
+SKIP_RE = re.compile(r"^##\s*\[\d{4}-\d{2}-\d{2}\]\s*skip\s*\|\s*(.+?)\s*$")
+REASON_RE = re.compile(r"^\s*-\s*原因[:：](.*)$")
+
+
+def _load_skips(root: Path) -> dict[str, bool]:
+    """解析 wiki/log.md 的 skip 条目（覆盖率账本）：
+    `## [YYYY-MM-DD] skip | <路径>` + 条目正文 `- 原因：<非空理由>`。
+    返回 {POSIX 路径: 是否带非空原因}。同一路径多条登记取"任一条带原因"
+    （append-only 下补登记即可修复缺原因）；原因行只归属其上方最近的 skip 条目。"""
+    skips: dict[str, bool] = {}
+    log = root / "wiki" / "log.md"
+    if not log.is_file():
+        return skips
+    cur: str | None = None
+    for line in log.read_text(encoding="utf-8").splitlines():
+        m = SKIP_RE.match(line)
+        if m:
+            cur = m.group(1).replace("\\", "/")
+            skips.setdefault(cur, False)
+            continue
+        if line.startswith("#"):  # 任何其他标题都结束当前 skip 条目的正文
+            cur = None
+            continue
+        if cur is not None:
+            r = REASON_RE.match(line)
+            if r and r.group(1).strip():
+                skips[cur] = True
+    return skips
+
+
 def _check_coverage(root: Path, cited: set[str]) -> list[str]:
     """⑤ 覆盖率（警告）。"""
     warnings: list[str] = []

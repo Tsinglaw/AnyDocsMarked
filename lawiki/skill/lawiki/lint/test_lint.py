@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from lint import scan_case, get_pairs, scan_answer  # noqa: E402
+from lint import scan_case, get_pairs, scan_answer, _load_skips  # noqa: E402
 
 
 def _write(p: Path, text: str) -> None:
@@ -152,6 +152,56 @@ def test_closure_ignores_trailing_comment(tmp_path):
            "> [!check] 1,749,287 + 53,824 == 1,803,111 （增资前+新增=增资后）\n")
     _, viol, _ = scan_case(tmp_path)
     assert viol == []
+
+
+# ---- ⑤ 覆盖率：log.md skip 条目解析 ----
+
+def test_load_skips_basic(tmp_path):
+    _write(tmp_path / "wiki" / "log.md",
+           "# 操作日志\n\n## [2026-07-12] skip | _md/a.md\n- 原因：红线对比版\n")
+    assert _load_skips(tmp_path) == {"_md/a.md": True}
+
+
+def test_load_skips_missing_reason(tmp_path):
+    _write(tmp_path / "wiki" / "log.md", "## [2026-07-12] skip | _md/a.md\n")
+    assert _load_skips(tmp_path) == {"_md/a.md": False}
+
+
+def test_load_skips_empty_reason_is_missing(tmp_path):
+    _write(tmp_path / "wiki" / "log.md", "## [2026-07-12] skip | _md/a.md\n- 原因：  \n")
+    assert _load_skips(tmp_path) == {"_md/a.md": False}
+
+
+def test_load_skips_reason_scoped_to_entry(tmp_path):
+    # 原因行只归属其上方最近的 skip 条目；隔了别的 ## 条目不得串账。
+    _write(tmp_path / "wiki" / "log.md",
+           "## [2026-07-12] skip | _md/a.md\n"
+           "## [2026-07-12] ingest | b.md\n- 原因：不该算到 a 头上\n")
+    assert _load_skips(tmp_path) == {"_md/a.md": False}
+
+
+def test_load_skips_duplicate_entries_reason_or(tmp_path):
+    # 同一路径多条登记：任一条带原因即视为有原因（append-only 下补一条即修复缺原因）。
+    _write(tmp_path / "wiki" / "log.md",
+           "## [2026-07-10] skip | _md/a.md\n"
+           "## [2026-07-12] skip | _md/a.md\n- 原因：补充原因\n")
+    assert _load_skips(tmp_path) == {"_md/a.md": True}
+
+
+def test_load_skips_no_log(tmp_path):
+    assert _load_skips(tmp_path) == {}
+
+
+def test_load_skips_backslash_normalized(tmp_path):
+    _write(tmp_path / "wiki" / "log.md",
+           "## [2026-07-12] skip | _md\\a.md\n- 原因：x\n")
+    assert _load_skips(tmp_path) == {"_md/a.md": True}
+
+
+def test_load_skips_halfwidth_colon_accepted(tmp_path):
+    _write(tmp_path / "wiki" / "log.md",
+           "## [2026-07-12] skip | _md/a.md\n- 原因: 半角冒号也行\n")
+    assert _load_skips(tmp_path) == {"_md/a.md": True}
 
 
 # ---- ⑤ 覆盖率（警告） ----
