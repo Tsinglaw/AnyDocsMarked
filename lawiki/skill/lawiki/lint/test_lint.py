@@ -21,34 +21,34 @@ def _anchor_case(tmp_path: Path, source: str, snippet: str, rel: str = "_md/a.md
 # ---- ① 锚点存在 ----
 
 def test_exact_match_passes(tmp_path):
-    _, viol, _ = scan_case(_anchor_case(tmp_path, "甲向乙借款500,000元。", "甲向乙借款500,000元"))
+    _, viol, *_ = scan_case(_anchor_case(tmp_path, "甲向乙借款500,000元。", "甲向乙借款500,000元"))
     assert viol == []
 
 
 def test_wrong_number_is_flagged(tmp_path):
-    _, viol, _ = scan_case(_anchor_case(tmp_path, "甲向乙借款500,000元。", "甲向乙借款500,001元"))
+    _, viol, *_ = scan_case(_anchor_case(tmp_path, "甲向乙借款500,000元。", "甲向乙借款500,001元"))
     assert len(viol) == 1
 
 
 def test_formatting_noise_passes(tmp_path):
     src = '| **甲** 向乙\n借款 500，000 元 <td>（RMB）</td> |'
-    _, viol, _ = scan_case(_anchor_case(tmp_path, src, "甲向乙借款500,000元（RMB）"))
+    _, viol, *_ = scan_case(_anchor_case(tmp_path, src, "甲向乙借款500,000元（RMB）"))
     assert viol == []
 
 
 def test_ellipsis_bridges_gap(tmp_path):
-    _, viol, _ = scan_case(_anchor_case(tmp_path, "甲方……中间很多字……乙方签字。", "甲方…乙方签字"))
+    _, viol, *_ = scan_case(_anchor_case(tmp_path, "甲方……中间很多字……乙方签字。", "甲方…乙方签字"))
     assert viol == []
 
 
 def test_out_of_order_fragments_flagged(tmp_path):
-    _, viol, _ = scan_case(_anchor_case(tmp_path, "乙方在前，甲方在后。", "甲方…乙方"))
+    _, viol, *_ = scan_case(_anchor_case(tmp_path, "乙方在前，甲方在后。", "甲方…乙方"))
     assert len(viol) == 1
 
 
 def test_missing_source_file_is_flagged(tmp_path):
     _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/missing.md：「随便」〕\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert len(viol) == 1
 
 
@@ -56,14 +56,14 @@ def test_nested_quotes_in_snippet_pass(tmp_path):
     # 判决书常引当事人陈述：片段内嵌套「」。锚点闭合符是两字符序列「」〕」，
     # 片段中不跟〕的孤立」不得提前截断——锁住此行为，防未来改正则时退化。
     src = "被告到庭后称「我不会还款」并当场离开。"
-    total, viol, _ = scan_case(_anchor_case(tmp_path, src, "被告到庭后称「我不会还款」并当场离开"))
+    total, viol, *_ = scan_case(_anchor_case(tmp_path, src, "被告到庭后称「我不会还款」并当场离开"))
     assert total == 1 and viol == []
 
 
 def test_nested_quotes_at_snippet_end_pass(tmp_path):
     # 片段以嵌套引号收尾（……」」〕）：首个」后跟」而非〕，不得在此截断。
     src = "被告到庭后称「我不会还款」。"
-    total, viol, _ = scan_case(_anchor_case(tmp_path, src, "被告到庭后称「我不会还款」"))
+    total, viol, *_ = scan_case(_anchor_case(tmp_path, src, "被告到庭后称「我不会还款」"))
     assert total == 1 and viol == []
 
 
@@ -72,7 +72,7 @@ def test_two_anchors_same_line_parsed_separately(tmp_path):
     _write(tmp_path / "_md" / "a.md", "甲借款50万元。乙提供担保。")
     _write(tmp_path / "wiki" / "p.md",
            "- 甲借款〔来源: _md/a.md：「甲借款50万元」〕，乙担保〔来源: _md/a.md：「丙提供担保」〕\n")
-    total, viol, _ = scan_case(tmp_path)
+    total, viol, *_ = scan_case(tmp_path)
     assert total == 2 and len(viol) == 1 and "丙提供担保" in viol[0]
 
 
@@ -81,7 +81,7 @@ def test_two_anchors_same_line_parsed_separately(tmp_path):
 def test_dead_wikilink_flagged(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "甲.md", "见 [[不存在的页]]\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert any("死链" in v for v in viol)
 
 
@@ -89,7 +89,7 @@ def test_wikilink_resolves_by_alias(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "无锡尚惟.md", "---\naliases: [尚惟]\n---\n# 无锡尚惟\n")
     _write(tmp_path / "wiki" / "p.md", "见 [[尚惟|尚惟]]\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
 
@@ -99,7 +99,7 @@ def test_timeline_out_of_order_flagged(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "时间线" / "总览.md",
            "# 时间线\n- 2022 年 6 月 9 日 甲\n- 2021 年 5 月 乙\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert any("乱序" in v for v in viol)
 
 
@@ -107,7 +107,7 @@ def test_timeline_in_order_passes(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "时间线" / "总览.md",
            "# 时间线\n- 公司设立时 甲\n- 2021 年 5 月 乙\n- 2022 年 6 月 9 日 丙\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
 
@@ -117,7 +117,7 @@ def test_timeline_year_only_after_full_date_not_flagged(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "时间线" / "总览.md",
            "# 时间线\n- 2021 年 5 月 3 日 甲\n- 2021 年 乙\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
 
@@ -126,7 +126,7 @@ def test_timeline_year_regression_still_flagged_at_mixed_precision(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "时间线" / "总览.md",
            "# 时间线\n- 2022 年 甲\n- 2021 年 5 月 乙\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert any("乱序" in v for v in viol)
 
 
@@ -135,14 +135,14 @@ def test_timeline_year_regression_still_flagged_at_mixed_precision(tmp_path):
 def test_closure_ok_passes(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "p.md", "> [!check] 128,205 + 128,205 + 25,641 == 282,051\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
 
 def test_closure_mismatch_flagged(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "p.md", "> [!check] 1,000 + 1 == 1,002\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert any("勾稽不符" in v for v in viol)
 
 
@@ -150,7 +150,7 @@ def test_closure_ignores_trailing_comment(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "p.md",
            "> [!check] 1,749,287 + 53,824 == 1,803,111 （增资前+新增=增资后）\n")
-    _, viol, _ = scan_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
 
@@ -206,12 +206,56 @@ def test_load_skips_halfwidth_colon_accepted(tmp_path):
 
 # ---- ⑤ 覆盖率（警告） ----
 
-def test_uncited_source_warns(tmp_path):
+def test_unresolved_source_warns(tmp_path):
     _write(tmp_path / "_md" / "cited.md", "甲乙")
     _write(tmp_path / "_md" / "draft.md", "草稿")
     _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
-    _, viol, warn = scan_case(tmp_path)
-    assert viol == [] and any("draft.md" in w for w in warn)
+    _, viol, warn, cov = scan_case(tmp_path)
+    assert viol == []
+    assert warn == ["[未处置] _md/draft.md"]
+    assert cov == {"total": 2, "cited": 1, "skipped": 0, "unresolved": 1}
+
+
+def test_registered_skip_silences_warning(tmp_path):
+    _write(tmp_path / "_md" / "cited.md", "甲乙")
+    _write(tmp_path / "_md" / "draft.md", "草稿")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
+    _write(tmp_path / "wiki" / "log.md",
+           "## [2026-07-12] skip | _md/draft.md\n- 原因：红线对比版\n")
+    _, viol, warn, cov = scan_case(tmp_path)
+    assert viol == [] and warn == []
+    assert cov == {"total": 2, "cited": 1, "skipped": 1, "unresolved": 0}
+
+
+def test_skip_without_reason_warns(tmp_path):
+    _write(tmp_path / "_md" / "draft.md", "草稿")
+    _write(tmp_path / "wiki" / "p.md", "占位页\n")
+    _write(tmp_path / "wiki" / "log.md", "## [2026-07-12] skip | _md/draft.md\n")
+    _, viol, warn, cov = scan_case(tmp_path)
+    assert viol == []
+    assert warn == ["[跳过无原因] _md/draft.md"]
+    assert cov == {"total": 1, "cited": 0, "skipped": 1, "unresolved": 0}
+
+
+def test_cited_wins_over_registration(tmp_path):
+    # 已引用文件即使被登记跳过（且无原因）也归"已引用"，零警告——引用优先，登记冗余无害。
+    _write(tmp_path / "_md" / "cited.md", "甲乙")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
+    _write(tmp_path / "wiki" / "log.md", "## [2026-07-12] skip | _md/cited.md\n")
+    _, viol, warn, cov = scan_case(tmp_path)
+    assert viol == [] and warn == []
+    assert cov == {"total": 1, "cited": 1, "skipped": 0, "unresolved": 0}
+
+
+def test_stale_skip_entry_silently_ignored(tmp_path):
+    # 登记路径在 _md/ 中不存在：不发警告、不进统计（真正漏网的文件仍会以未处置暴露）。
+    _write(tmp_path / "_md" / "a.md", "甲乙")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/a.md：「甲乙」〕\n")
+    _write(tmp_path / "wiki" / "log.md",
+           "## [2026-07-12] skip | _md/早已删除.md\n- 原因：x\n")
+    _, viol, warn, cov = scan_case(tmp_path)
+    assert viol == [] and warn == []
+    assert cov == {"total": 1, "cited": 1, "skipped": 0, "unresolved": 0}
 
 
 # ---- extract ----

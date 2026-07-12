@@ -36,7 +36,7 @@ class GrepTermsTests(unittest.TestCase):
             (root / "wiki").mkdir()
             (root / "wiki" / "p.md").write_text(
                 f"- 事实 {hits[0]['anchor']}\n", encoding="utf-8")
-            total, violations, _ = scan_case(root)
+            total, violations, *_ = scan_case(root)
             self.assertEqual((total, violations), (1, []), msg=str(violations))
 
     def test_suspect_source_marks_unverified(self):
@@ -79,7 +79,7 @@ class GrepTermsTests(unittest.TestCase):
             (root / "wiki").mkdir()
             (root / "wiki" / "p.md").write_text(
                 f"- 事实 {hits[0]['anchor']}\n", encoding="utf-8")
-            total, violations, _ = scan_case(root)
+            total, violations, *_ = scan_case(root)
             self.assertEqual((total, violations), (1, []), msg=str(violations))
 
 

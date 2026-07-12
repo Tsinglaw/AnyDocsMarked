@@ -246,22 +246,34 @@ def _load_skips(root: Path) -> dict[str, bool]:
     return skips
 
 
-def _check_coverage(root: Path, cited: set[str]) -> list[str]:
-    """⑤ 覆盖率（警告）。"""
+def _check_coverage(root: Path, cited: set[str]) -> tuple[list[str], dict[str, int]]:
+    """⑤ 覆盖率（警告，三态账本）：已引用 / 登记跳过（wiki/log.md skip 条目）/ 未处置。
+    仅未处置发 `[未处置]`；登记但缺非空原因发 `[跳过无原因]`。引用优先于登记；
+    登记路径不在 _md/ 中的静默忽略。返回 (警告, 统计)。"""
+    stats = {"total": 0, "cited": 0, "skipped": 0, "unresolved": 0}
     warnings: list[str] = []
     md_dir = root / "_md"
     if not md_dir.is_dir():
-        return warnings
+        return warnings, stats
     cited_norm = {c.replace("\\", "/") for c in cited}
+    skips = _load_skips(root)
     for f in sorted(md_dir.rglob("*.md")):
         rel = f.relative_to(root).as_posix()
-        if rel not in cited_norm:
-            warnings.append(f"[未引用] {rel}")
-    return warnings
+        stats["total"] += 1
+        if rel in cited_norm:
+            stats["cited"] += 1
+        elif rel in skips:
+            stats["skipped"] += 1
+            if not skips[rel]:
+                warnings.append(f"[跳过无原因] {rel}")
+        else:
+            stats["unresolved"] += 1
+            warnings.append(f"[未处置] {rel}")
+    return warnings, stats
 
 
-def scan_case(root: Path) -> tuple[int, list[str], list[str]]:
-    """返回 (锚点总数, 违规列表, 警告列表)。纯函数，便于测试。"""
+def scan_case(root: Path) -> tuple[int, list[str], list[str], dict[str, int]]:
+    """返回 (锚点总数, 违规列表, 警告列表, 覆盖率统计)。纯函数，便于测试。"""
     wiki = root / "wiki"
     if not wiki.is_dir():
         raise FileNotFoundError(f"找不到 {wiki}")
@@ -271,8 +283,8 @@ def scan_case(root: Path) -> tuple[int, list[str], list[str]]:
     violations += _check_deadlinks(pages, names)
     violations += _check_timeline_order(pages)
     violations += _check_closures(pages)
-    warnings = _check_coverage(root, cited)
-    return total, violations, warnings
+    warnings, coverage = _check_coverage(root, cited)
+    return total, violations, warnings, coverage
 
 
 # ───────────────────────── answer：问答交付闸门 ─────────────────────────
@@ -389,7 +401,7 @@ def main(argv: list[str]) -> int:
             print(json.dumps(get_pairs(root), ensure_ascii=False, indent=2))
             return 0
         try:
-            total, violations, warnings = scan_case(root)
+            total, violations, warnings, cov = scan_case(root)
         except FileNotFoundError as e:
             print(e, file=sys.stderr)
             return 2

@@ -51,7 +51,7 @@ class EnrichHitTests(unittest.TestCase):
             (root / "wiki" / "p.md").write_text(
                 f"- 事实 {enriched['anchor']}\n", encoding="utf-8")
 
-            total, violations, warnings = scan_case(root)
+            total, violations, warnings, _ = scan_case(root)
             self.assertEqual(violations, [], msg=str(violations))
             self.assertEqual(total, 1)
 
@@ -74,7 +74,7 @@ class EnrichHitTests(unittest.TestCase):
             (root / "wiki").mkdir()
             (root / "wiki" / "p.md").write_text(
                 f"- 事实 {enriched['anchor']}\n", encoding="utf-8")
-            total, violations, _ = scan_case(root)
+            total, violations, *_ = scan_case(root)
             self.assertEqual(total, 1, "锚点未被 lint 识别（多行？）")
             self.assertEqual(violations, [], msg=str(violations))
 
@@ -105,7 +105,7 @@ class EnrichHitTests(unittest.TestCase):
             (root / "wiki").mkdir()
             (root / "wiki" / "p.md").write_text(
                 f"- 事实 {enriched['anchor']}\n", encoding="utf-8")
-            total, violations, _ = scan_case(root)
+            total, violations, *_ = scan_case(root)
             self.assertEqual(total, 1)
             self.assertEqual(violations, [], msg=str(violations))
 
