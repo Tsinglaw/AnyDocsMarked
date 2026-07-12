@@ -1,6 +1,7 @@
 # lawiki 问答确定性闸门（QA Gates）设计
 
-状态：设计已获用户批准，待实现。
+状态：已实现并随 v1.2.0 发布（`tools/evidence.py`、`lint.py answer`、`lint/stop_hook.py`、
+面包屑修复与协议接线均已落地 main）。
 
 ## 背景与目标
 

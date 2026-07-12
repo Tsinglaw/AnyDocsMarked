@@ -52,6 +52,30 @@ def test_missing_source_file_is_flagged(tmp_path):
     assert len(viol) == 1
 
 
+def test_nested_quotes_in_snippet_pass(tmp_path):
+    # 判决书常引当事人陈述：片段内嵌套「」。锚点闭合符是两字符序列「」〕」，
+    # 片段中不跟〕的孤立」不得提前截断——锁住此行为，防未来改正则时退化。
+    src = "被告到庭后称「我不会还款」并当场离开。"
+    total, viol, _ = scan_case(_anchor_case(tmp_path, src, "被告到庭后称「我不会还款」并当场离开"))
+    assert total == 1 and viol == []
+
+
+def test_nested_quotes_at_snippet_end_pass(tmp_path):
+    # 片段以嵌套引号收尾（……」」〕）：首个」后跟」而非〕，不得在此截断。
+    src = "被告到庭后称「我不会还款」。"
+    total, viol, _ = scan_case(_anchor_case(tmp_path, src, "被告到庭后称「我不会还款」"))
+    assert total == 1 and viol == []
+
+
+def test_two_anchors_same_line_parsed_separately(tmp_path):
+    # 同一行两个锚点必须各自独立匹配（非贪婪不吞到行尾）：好锚点过、坏锚点抓。
+    _write(tmp_path / "_md" / "a.md", "甲借款50万元。乙提供担保。")
+    _write(tmp_path / "wiki" / "p.md",
+           "- 甲借款〔来源: _md/a.md：「甲借款50万元」〕，乙担保〔来源: _md/a.md：「丙提供担保」〕\n")
+    total, viol, _ = scan_case(tmp_path)
+    assert total == 2 and len(viol) == 1 and "丙提供担保" in viol[0]
+
+
 # ---- ② 死链 ----
 
 def test_dead_wikilink_flagged(tmp_path):
