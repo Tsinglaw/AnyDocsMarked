@@ -53,3 +53,33 @@ def test_index_file_reports_extraction_error(tmp_path, monkeypatch):
     assert res["indexed"] is False
     assert "ValueError" in res["reason"]
     assert res["chunks"] == 0
+
+
+def test_index_path_isolates_an_embed_failure(tmp_path):
+    # A failure downstream of extraction (embed/chunk/store) must ALSO be isolated,
+    # not just extraction — otherwise one bad file aborts the batch mid-run and
+    # leaves a partial index with a nonzero exit (the "伪失败" seen in the field).
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "good.md").write_text("可正常嵌入的内容。", encoding="utf-8")
+    (docs / "bad.md").write_text("触发嵌入失败的内容。", encoding="utf-8")
+
+    r = make_retriever(tmp_path)
+    real_embed = r._embedder.embed_documents
+
+    def flaky_embed(chunks):
+        if any("触发嵌入失败" in c for c in chunks):
+            raise RuntimeError("simulated embed crash")
+        return real_embed(chunks)
+
+    r._embedder.embed_documents = flaky_embed
+
+    result = r.index_path(docs)
+
+    assert result["files_seen"] == 2
+    assert result["files_indexed"] == 1        # good.md still made it in
+    assert result["files_skipped"] == 1
+    skipped = result["skipped"]
+    assert len(skipped) == 1
+    assert skipped[0]["source"].endswith("bad.md")
+    assert "RuntimeError" in skipped[0]["reason"]

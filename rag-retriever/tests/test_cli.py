@@ -71,6 +71,25 @@ def test_exclude_flag_reaches_index(monkeypatch):
     assert FakeRetriever.last_index["exclude"] == ("report.json",)
 
 
+def test_index_warns_on_skipped_files(monkeypatch, capsys):
+    class SkippingRetriever(FakeRetriever):
+        def index_path(self, path, recursive=True, source_root=None, exclude=()):
+            return {"path": path, "files_seen": 3, "files_indexed": 1,
+                    "files_skipped": 2, "total_chunks": 5,
+                    "skipped": [{"source": "a", "reason": "x"},
+                                {"source": "b", "reason": "y"}]}
+
+    monkeypatch.setattr(cli, "Retriever", SkippingRetriever)
+    monkeypatch.setattr(sys, "argv", ["rag-retriever", "index", "/case/_md"])
+    cli.main()
+    assert "2 file(s) skipped" in capsys.readouterr().err   # partial batch is loud
+
+
+def test_index_no_warning_when_nothing_skipped(monkeypatch, capsys):
+    _run(monkeypatch, ["rag-retriever", "index", "/case/_md"])  # FakeRetriever: skipped 0
+    assert "skipped" not in capsys.readouterr().err
+
+
 def test_metadata_fields_flag_overrides_config(monkeypatch):
     _run(monkeypatch, [
         "rag-retriever", "index", "/case/_md",

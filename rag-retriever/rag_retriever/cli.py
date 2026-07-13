@@ -96,6 +96,12 @@ def main() -> None:
             source_root=args.source_root, exclude=split_csv(args.exclude or ""),
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        # Surface a partial batch loudly: skipped files are isolated (batch still
+        # completes, exit 0 — degradation over abort), but the caller must see it
+        # rather than mistake a partial index for a clean one.
+        if result["files_skipped"]:
+            print(f"{result['files_skipped']} file(s) skipped and NOT indexed "
+                  f"(see 'skipped' above for reasons).", file=sys.stderr)
     elif args.cmd == "search":
         hits = r.search(args.query, k=args.k, source_prefix=args.source_prefix)
         if args.json:

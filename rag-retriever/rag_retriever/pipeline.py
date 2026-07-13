@@ -82,28 +82,31 @@ class Retriever:
         """
         path = Path(path).resolve()
         source = _relative_source(path, source_root)
-        # Isolate per-file extraction failures: a single encrypted/corrupt file
-        # in a folder must not abort the whole batch (mirrors makeitdown). It's
-        # reported as skipped-with-reason, like an empty extraction.
+        # Isolate EVERY per-file failure (extract / chunk / embed / store), not
+        # just extraction: one bad file in a folder must not abort the whole batch
+        # (mirrors makeitdown). A downstream crash — e.g. the embedder choking on
+        # one file — would otherwise propagate out of index_path, leaving a partial
+        # index with a nonzero exit (the "伪失败" seen in the field). Reported as
+        # skipped-with-reason instead.
         try:
             text = extract_text(path)
+            if not text:
+                return {"source": source, "indexed": False, "chunks": 0,
+                        "reason": "no extractable text (scanned image without OCR?)"}
+            doc_chunks = chunk_document(
+                text, self.cfg.chunk_tokens, self.cfg.chunk_overlap, self.cfg.chunk_strategy
+            )
+            texts = [_compose(c) for c in doc_chunks]
+            # Omit the key for headingless chunks: {} is cleaner than {"heading_path": ""}
+            # and keeps existing metadata tests (which expect no key when absent) green.
+            metas = [{"heading_path": c.heading_path} if c.heading_path else {} for c in doc_chunks]
+            vectors = self.embedder.embed_documents(texts)
+            meta = select_fields(read_frontmatter(path), self.cfg.metadata_fields)
+            self.store.delete_source(source)
+            n = self.store.add(source, texts, vectors, meta=meta, metas=metas)
         except Exception as e:
             return {"source": source, "indexed": False, "chunks": 0,
-                    "reason": f"extraction failed: {type(e).__name__}: {e}"}
-        if not text:
-            return {"source": source, "indexed": False, "chunks": 0,
-                    "reason": "no extractable text (scanned image without OCR?)"}
-        doc_chunks = chunk_document(
-            text, self.cfg.chunk_tokens, self.cfg.chunk_overlap, self.cfg.chunk_strategy
-        )
-        texts = [_compose(c) for c in doc_chunks]
-        # Omit the key for headingless chunks: {} is cleaner than {"heading_path": ""}
-        # and keeps existing metadata tests (which expect no key when absent) green.
-        metas = [{"heading_path": c.heading_path} if c.heading_path else {} for c in doc_chunks]
-        vectors = self.embedder.embed_documents(texts)
-        meta = select_fields(read_frontmatter(path), self.cfg.metadata_fields)
-        self.store.delete_source(source)
-        n = self.store.add(source, texts, vectors, meta=meta, metas=metas)
+                    "reason": f"{type(e).__name__}: {e}"}
         return {"source": source, "indexed": True, "chunks": n}
 
     def index_path(
