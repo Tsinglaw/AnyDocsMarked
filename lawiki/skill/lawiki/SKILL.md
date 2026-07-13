@@ -45,6 +45,8 @@ wiki/
 
 在案件目录执行 `makeitdown 原始资料 -o _md`。转换后读 `_md/report.json`，留意 `warned`/`failed`/`skipped`。失败或跳过的文件**不要凭空补内容**，按缺失处理并告知用户。
 
+转换后**跑源级对账（确定性收尾）**：`python <SKILL_DIR>/tools/reconcile.py <案件根目录>`。它把 `原始资料/` 与 `_md/report.json` 对齐，把"转换失败 / 跳过、从未进入 `_md/`"的源文件（**lint 覆盖率账本看不见的盲点**，如无 LibreOffice 的 `.doc`）逼出来。退出码非 0 = 有**未处置源级遗漏**：要么装好外部转换器补转，要么在 `wiki/log.md` 登记 skip（路径写 `原始资料/<相对路径>` + 非空原因，格式同 `_md` 级 skip，见 `page-formats.md`）并**显式告知用户**；清零方可继续。
+
 **长任务模式（批量含扫描件 / 走云端 OCR）**：文件多于 ~20 个或含大量扫描件时，转换可能几十分钟。makeitdown 会逐文件把进度打到 stderr（`[k/N] ✓/⚠/✗ 路径`）。**后台运行并落日志**（Claude Code 用 Bash 的后台模式——完成时 harness 会自动唤醒你；其他 agent 用 `nohup makeitdown 原始资料 -o _md > convert.log 2>&1 &` 等价形式），期间可 tail 日志按进度向用户播报；**以进程退出 + `_md/report.json` 出现为完成信号**，完成后读 report.json 向用户汇总 succeeded/warned/failed/skipped 四类计数与需注意项。中断或掉线后加 `--skip-existing` 重跑即断点续传。
 
 ## 第二步半：索引 `_md/` → `.rag/`（确定性，可选可降级）
@@ -74,7 +76,7 @@ python <SKILL_DIR>/tools/rag.py index <案件根目录>
 **范围纪律**：默认目标就是上面的"每个 `.md`"。允许分批 / 先做案件主干，但必须：
 - 每轮向用户申报范围——「本轮 ingest n / 登记跳过 m / 待补 k」；
 - 决定跳过的文件（草稿/红线版等）在 `log.md` 写 skip 条目并附原因（格式见 `page-formats.md`），不许以"记入 backlog"等形式静默降格；
-- **ingest 完成的定义 = lint 0 违规 且 覆盖率未处置 = 0**（每个源文件要么被引用、要么登记跳过）；待补清零前不得宣称 ingest 完成。
+- **ingest 完成的定义 = lint 0 违规 且 覆盖率未处置 = 0 且 源级对账未处置 = 0**（每个 `_md` 源文件要么被引用、要么登记跳过；每个转换失败/跳过、未进 `_md` 的源文件——lint 看不见——也要么补转、要么登记跳过）；三者未清零前不得宣称 ingest 完成。
 
 第 8、9 步细节见 **`references/verification.md`**；页面格式与 Obsidian 约定见 **`references/page-formats.md`**。
 
