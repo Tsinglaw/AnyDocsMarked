@@ -292,6 +292,30 @@ def scan_case(root: Path) -> tuple[int, list[str], list[str], dict[str, int]]:
     return total, violations, warnings, coverage
 
 
+# 闭世界锚点必含的核心约束句（与 tools/init_case.py 的模板同源）。存在性 +
+# sentinel 都可零误报机判——故做硬违规；「内容被遵守」不可判，不在此列。
+CASE_ANCHOR_SENTINEL = "答前必先检索"
+
+
+def _check_case_files(root: Path) -> list[str]:
+    """案件根必须有闭世界锚点 `AGENTS.md` 与 `CLAUDE.md`（harness 自动加载、
+    即便 skill 未触发也在场，见 SKILL.md 第一步）。缺失 / 空 / 无 sentinel →
+    硬违规。生成用 `tools/init_case.py`。不进 scan_case（那只管 wiki 内容），
+    由 main 的 check 分支追加。"""
+    violations: list[str] = []
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        p = root / name
+        if not p.is_file():
+            violations.append(
+                f"[缺锚点] 案件根缺 {name}（闭世界自描述锚点）。"
+                f"跑 python <SKILL_DIR>/tools/init_case.py <案件根> 生成。")
+        elif CASE_ANCHOR_SENTINEL not in p.read_text(encoding="utf-8", errors="replace"):
+            violations.append(
+                f"[锚点无效] {name} 缺闭世界约束句「{CASE_ANCHOR_SENTINEL}」——"
+                f"可能是空文件或被掏空。重跑 init_case.py --force 复原。")
+    return violations
+
+
 # ───────────────────────── answer：问答交付闸门 ─────────────────────────
 
 NOT_FOUND_PHRASE = "未在本案材料中找到"
@@ -410,6 +434,7 @@ def main(argv: list[str]) -> int:
         except FileNotFoundError as e:
             print(e, file=sys.stderr)
             return 2
+        violations = violations + _check_case_files(root)  # 结构性前置：闭世界锚点须在
         print(f"扫描锚点 {total} 个；违规 {len(violations)} 处；警告 {len(warnings)} 处。")
         print(f"覆盖率：{cov['total']} 源文件 | 已引用 {cov['cited']} | "
               f"登记跳过 {cov['skipped']} | 未处置 {cov['unresolved']}")

@@ -251,12 +251,44 @@ def test_cited_wins_over_registration(tmp_path):
 
 
 def test_check_cli_prints_coverage_summary(tmp_path, capsys):
-    from lint import main
+    from lint import CASE_ANCHOR_SENTINEL, main
     _coverage_case(tmp_path)
+    for name in ("AGENTS.md", "CLAUDE.md"):  # 闭世界锚点在场，隔离出"仅覆盖率警告"
+        _write(tmp_path / name, f"# 案件库\n{CASE_ANCHOR_SENTINEL}\n")
     assert main(["lint.py", "check", str(tmp_path)]) == 0  # 仅覆盖率警告不影响退出码
     out = capsys.readouterr().out
     assert "覆盖率：2 源文件 | 已引用 1 | 登记跳过 0 | 未处置 1" in out
     assert "[未处置] _md/draft.md" in out
+
+
+def test_case_files_missing_flagged(tmp_path):
+    from lint import _check_case_files
+    viol = _check_case_files(tmp_path)          # 空目录：两个锚点都缺
+    assert len(viol) == 2
+    assert all("缺锚点" in v for v in viol)
+
+
+def test_case_files_present_valid_pass(tmp_path):
+    from lint import CASE_ANCHOR_SENTINEL, _check_case_files
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        _write(tmp_path / name, f"# 案件库\n{CASE_ANCHOR_SENTINEL}\n")
+    assert _check_case_files(tmp_path) == []
+
+
+def test_case_files_gutted_flagged(tmp_path):
+    from lint import _check_case_files
+    _write(tmp_path / "AGENTS.md", "# 案件库\n答前必先检索\n")
+    _write(tmp_path / "CLAUDE.md", "# 空壳，没有约束句\n")   # 被掏空
+    viol = _check_case_files(tmp_path)
+    assert len(viol) == 1 and "锚点无效" in viol[0] and "CLAUDE.md" in viol[0]
+
+
+def test_missing_case_anchor_fails_check_cli(tmp_path):
+    # 端到端：wiki 内容全对，但缺锚点 → lint check 退出非 0（结构性硬闸门）
+    from lint import main
+    _write(tmp_path / "_md" / "a.md", "甲乙")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/a.md：「甲乙」〕\n")
+    assert main(["lint.py", "check", str(tmp_path)]) == 1
 
 
 def test_stale_skip_entry_silently_ignored(tmp_path):
