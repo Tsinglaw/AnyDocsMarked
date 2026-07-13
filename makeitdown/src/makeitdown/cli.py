@@ -83,6 +83,12 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     input_dir = Path(args.input)
+    if not input_dir.is_dir():
+        print(f"error: 输入路径不是目录：{input_dir}\n"
+              f"makeitdown 只接受目录输入（递归转换其中所有文件）；"
+              f"若要转单个文件，请把它放进一个目录再指向该目录。",
+              file=sys.stderr)
+        return 2
     output_dir = Path(args.output) if args.output else Path(f"{input_dir}_md")
     token = args.cloud_token or os.environ.get("PADDLEOCR_AISTUDIO_TOKEN")
     report_path = Path(args.report) if args.report else output_dir / "report.json"

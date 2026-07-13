@@ -173,6 +173,9 @@ def convert_tree(
     }
 
     files = _iter_files(input_dir)
+    if not files:
+        print(f"warning: {input_dir} 下没有找到任何文件——将产出空 report（0 个转换目标）。",
+              file=sys.stderr, flush=True)
     # Two sources with the same stem but different extensions (e.g. report.pdf
     # and report.docx) would both map to report.md and overwrite each other.
     # Detect those collisions up front and disambiguate by keeping the original
