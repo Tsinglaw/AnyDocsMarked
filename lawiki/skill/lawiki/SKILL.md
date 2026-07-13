@@ -1,17 +1,20 @@
 ---
 name: lawiki
-description: Use when building, maintaining, OR answering questions about a Chinese legal-case knowledge wiki from a folder of case materials — drives makeitdown to convert raw documents to markdown, files them into a controlled, source-anchored case wiki (案件主体/法律关系/法律事实/时间线), and answers case questions by cross-checking the wiki against RAG evidence over the source files. Triggers on 整理案件资料、把案件资料建成 wiki、建案件库、处理这个案子、ingest case files, build a case wiki; and on 问本案、关于这个案子、本案里 X 是什么/多少/是谁 (ask about this case).
+description: Use when building, maintaining, OR answering questions about a Chinese legal-case knowledge wiki from a folder of case materials — drives makeitdown to convert raw documents to markdown, files them into a controlled, source-anchored case wiki (案件主体/法律关系/法律事实/时间线), and answers case questions by cross-checking the wiki against RAG evidence over the source files. Triggers on 整理案件资料、把案件资料建成 wiki、建案件库、处理这个案子、ingest case files, build a case wiki; and on 问本案、关于这个案子、本案里 X 是什么/多少/是谁, 以及就本案出简报/汇报/分析/梳理 (ask about, or produce any briefing / report / analysis over, this case).
 ---
 
 # lawiki — 法律案件 wiki 构建
 
 把一个案件的原始资料整合成**可控、可溯源**的 wiki。你（agent）负责全部归档与维护。法律工作不接受模糊和混乱——下面的**铁律（三类标注 + 逐字锚点硬底线）不可违反**。
 
-细节按需读本 skill 的 `references/`（`setup.md` 首次配环境、`page-formats.md` 页面格式+Obsidian 约定、`verification.md` 校验、`rag.md` RAG 索引检索、`qa.md` 案件问答协议）；不必一次全装进注意力。工具在 `tools/`：`init_case.py`（确定性建案脚手架 + 闭世界锚点）、`evidence.py`（问答取证一条命令：RAG+精确词+outline）、`rag.py`（RAG 包装）、`outline.py`（`_md` 标题树导航，零依赖、对抗遗漏、亦作无 RAG 降级）、`reconcile.py`（源级对账，补覆盖率账本看不见 `_md` 之外的盲点）。`<SKILL_DIR>` 指本 skill 实际所在目录。
+细节按需读本 skill 的 `references/`（`setup.md` 首次配环境、`page-formats.md` 页面格式+Obsidian 约定、`verification.md` 校验、`rag.md` RAG 索引检索、`qa.md` 案件问答协议——**answer 模式必读、非按需**，见下「何时用」）；build 相关的其余不必一次全装进注意力。工具在 `tools/`：`init_case.py`（确定性建案脚手架 + 闭世界锚点）、`evidence.py`（问答取证一条命令：RAG+精确词+outline）、`rag.py`（RAG 包装）、`outline.py`（`_md` 标题树导航，零依赖、对抗遗漏、亦作无 RAG 降级）、`reconcile.py`（源级对账，补覆盖率账本看不见 `_md` 之外的盲点）。`<SKILL_DIR>` 指本 skill 实际所在目录。
 
-## 何时用 / 怎么激活
+## 何时用 / 怎么激活（两种模式，动手前先判哪种）
 
-用户把法律文件放进某案件目录的 `原始资料/`，并说「整理案件资料」「把案件资料建成 wiki」「建案件库」「处理这个案子」「build a case wiki」等。
+本 skill 覆盖两种任务，**入手先判是 build 还是 answer**——切错模式是最常见的失守：构建做完切到问答，最易忘记重走取证接地，直接啃 `_md` 写结论（曾因此把未验证的断言当事实交付）。
+
+- **build（构建）**：用户把文件放进 `原始资料/`，说「整理案件资料」「把案件资料建成 wiki」「建案件库」「处理这个案子」「build a case wiki」等 → 走下面的流水线。
+- **answer（问答）**：用户就本案内容要**任何产出**——「问本案」「关于这个案子」「本案里 X 是什么/多少/是谁」，以及**简报 / 汇报 / 分析 / 梳理**等 → 走下方「案件问答」协议。**answer 模式：先读 `references/qa.md` 全文**（不能只凭本 SKILL.md 摘要作答）→ 跑 `evidence.py` 多路取证 → 过 `lint answer` 交付闸门。**每次进入 answer（哪怕紧接在 build 之后）都要重走这套，别把上半程的状态当全程有效。**
 
 ## 流水线
 
@@ -83,7 +86,7 @@ python <SKILL_DIR>/tools/rag.py index <案件根目录>
 
 ## 案件问答（交叉验证）
 
-案件建好后，用户**就内容提问**——「问本案…」「关于这个案子…」「本案里 X 是什么/多少/是谁」等（与「整理/建库/ingest」这类**构建**触发词区分）。
+案件建好后，用户**就内容提问或要产出**——「问本案…」「关于这个案子…」「本案里 X 是什么/多少/是谁」，以及就本案出**简报 / 汇报 / 分析 / 梳理**等（与「整理/建库/ingest」这类**构建**触发词区分）。**这些都算 answer 模式，一律先读 `qa.md` 全文再动手**——写"报告/汇报"最容易滑成通用文档写作、跳过本协议的取证接地。
 
 **闭世界铁规（先检索后答）**：本案事实的唯一来源 = 本案 `原始资料/_md/wiki/.rag`；**答前必先检索，严禁凭记忆/通用法律知识直接回答**；查不到就明说「未在本案材料中找到」，绝不脑补；每个事实挂逐字锚点。通用分析须标 `> [!note] 分析（非本案证据）`。
 
