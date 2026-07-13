@@ -7,7 +7,7 @@ description: Use when building, maintaining, OR answering questions about a Chin
 
 把一个案件的原始资料整合成**可控、可溯源**的 wiki。你（agent）负责全部归档与维护。法律工作不接受模糊和混乱——下面的**铁律（三类标注 + 逐字锚点硬底线）不可违反**。
 
-细节按需读本 skill 的 `references/`（`setup.md` 首次配环境、`page-formats.md` 页面格式+Obsidian 约定、`verification.md` 校验、`rag.md` RAG 索引检索、`qa.md` 案件问答协议）；不必一次全装进注意力。工具在 `tools/`：`evidence.py`（问答取证一条命令：RAG+精确词+outline）、`rag.py`（RAG 包装）、`outline.py`（`_md` 标题树导航，零依赖、对抗遗漏、亦作无 RAG 降级）。`<SKILL_DIR>` 指本 skill 实际所在目录。
+细节按需读本 skill 的 `references/`（`setup.md` 首次配环境、`page-formats.md` 页面格式+Obsidian 约定、`verification.md` 校验、`rag.md` RAG 索引检索、`qa.md` 案件问答协议）；不必一次全装进注意力。工具在 `tools/`：`init_case.py`（确定性建案脚手架 + 闭世界锚点）、`evidence.py`（问答取证一条命令：RAG+精确词+outline）、`rag.py`（RAG 包装）、`outline.py`（`_md` 标题树导航，零依赖、对抗遗漏、亦作无 RAG 降级）、`reconcile.py`（源级对账，补覆盖率账本看不见 `_md` 之外的盲点）。`<SKILL_DIR>` 指本 skill 实际所在目录。
 
 ## 何时用 / 怎么激活
 
@@ -32,14 +32,15 @@ description: Use when building, maintaining, OR answering questions about a Chin
 
 ## 第一步：确保案件结构存在
 
-若案件目录下没有 `wiki/`，创建固定结构（不要即兴增减，保证可复现）：
+**跑确定性建案脚手架**（别手写——手写会被跳过，问题报告 §10 里 `AGENTS.md`/`CLAUDE.md` 就一直没被建）：
 
 ```
-wiki/
-  index.md   log.md   案件主体/   法律关系/   法律事实/   时间线/
+python <SKILL_DIR>/tools/init_case.py <案件根目录>
 ```
 
-并确保案件目录下有 `原始资料/` 与 `_md/`。同时在**案件根目录**写一份 `AGENTS.md` **并复制一份同内容的 `CLAUDE.md`**（自描述 + 闭世界问答约束，让任何 agent/人打开本文件夹即懂"只用本案数据、答前必检索、怎么续作"——即便 skill 未触发也有此提醒）。`AGENTS.md`/`CLAUDE.md`、`index.md`、`log.md` 的初始内容均见 `references/page-formats.md`。
+它幂等地建固定结构（`wiki/` + `案件主体/法律关系/法律事实/时间线` 四子目录 + `index.md` + `log.md` + `原始资料/`），并**盖章写入闭世界锚点 `AGENTS.md` + 同内容 `CLAUDE.md`**（自描述 + "只用本案数据、答前必检索"约束——harness 自动加载本文件、**即便 skill 未触发也在场**，是唯一不依赖触发的护栏）。已存在的文件不覆盖；被掏空需复原时加 `--force`。
+
+**这两个锚点由闸门守**：`lint check` 把案件根缺 `AGENTS.md`/`CLAUDE.md`（或被掏空）判为**硬违规**，故它们并入"ingest 完成 = lint 0 违规"。模板内容见 `references/page-formats.md`。
 
 ## 第二步：转换（调 makeitdown）
 
