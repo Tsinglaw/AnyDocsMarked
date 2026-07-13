@@ -73,6 +73,10 @@ def reconcile(root: Path) -> tuple[list[str], dict[str, int]]:
 
 
 def main(argv: list[str]) -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Windows 重定向默认 GBK
+    except Exception:
+        pass
     if not argv:
         print("用法：python reconcile.py <案件根目录>", file=sys.stderr)
         return 2
