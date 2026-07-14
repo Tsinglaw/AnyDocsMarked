@@ -8,6 +8,8 @@ must still be indexed (mirroring makeitdown's per-file error isolation).
 
 from __future__ import annotations
 
+import pytest
+
 import rag_retriever.pipeline as pipeline_mod
 from conftest import make_retriever
 
@@ -83,3 +85,26 @@ def test_index_path_isolates_an_embed_failure(tmp_path):
     assert len(skipped) == 1
     assert skipped[0]["source"].endswith("bad.md")
     assert "RuntimeError" in skipped[0]["reason"]
+
+
+def test_index_path_propagates_embedder_construction_failure(tmp_path, monkeypatch):
+    # An embedder that can't even be CONSTRUCTED (e.g. offline with no vendored
+    # model) is an environment failure, not a per-file one — every subsequent
+    # file would fail identically. It must propagate and abort the whole batch
+    # (nonzero exit), not be swallowed as one file's "skipped" reason:
+    # install.py's --check-offline probe relies on exactly this nonzero exit to
+    # detect a not-actually-offline-ready setup (LAWIKI-RAG-001).
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_text("内容", encoding="utf-8")
+
+    r = make_retriever(tmp_path)
+    r._embedder = None  # undo conftest's eager FakeEmbedder to hit the lazy path
+
+    def boom(cfg):
+        raise RuntimeError("无法下载 embedding 模型：offline, no vendored copy")
+
+    monkeypatch.setattr(pipeline_mod, "get_embedder", boom)
+
+    with pytest.raises(RuntimeError, match="无法下载"):
+        r.index_path(docs)

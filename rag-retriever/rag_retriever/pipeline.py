@@ -115,6 +115,15 @@ class Retriever:
     ) -> dict:
         """Index a file or every supported file under a folder."""
         files = iter_files(path, recursive=recursive, exclude=exclude)
+        if files and self._embedder is None:
+            # Resolve the embedder once, up front, OUTSIDE index_file's per-file
+            # try: construction failure (e.g. offline with no vendored model) is
+            # an environment failure — every file would fail identically — and
+            # must propagate/abort the batch, not be swallowed as one file's
+            # "skipped" reason. install.py's --check-offline probe relies on this
+            # nonzero exit (LAWIKI-RAG-001); per-file isolation below is only for
+            # failures specific to one file (bad extraction, a single bad chunk).
+            self._embedder = get_embedder(self.cfg)
         results = [self.index_file(f, source_root=source_root) for f in files]
         indexed = [r for r in results if r["indexed"]]
         skipped = [r for r in results if not r["indexed"]]
