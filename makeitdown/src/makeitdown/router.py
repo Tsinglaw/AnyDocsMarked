@@ -8,6 +8,12 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif", ".webp"}
 # Legacy/ambiguous formats markitdown can't read directly. Routed to the legacy
 # converter, which sniffs the real container (OOXML vs OLE2) and picks a backend.
 LEGACY_BINARY_EXTS = {".doc", ".wps"}
+# OS-generated artifacts, not case content — appear after the OS browses the
+# folder (Explorer/Finder). Excluded at iteration time so they never enter the
+# report at all (not even as skipped_unsupported): a downstream source-level
+# audit (lawiki's reconcile.py) would otherwise flag one as an unresolved gap
+# on a file nobody could ever "convert".
+IGNORED_FILENAMES = {"Thumbs.db", "desktop.ini", ".DS_Store"}
 
 
 def _pdf_avg_chars_per_page(path: Path) -> float:
