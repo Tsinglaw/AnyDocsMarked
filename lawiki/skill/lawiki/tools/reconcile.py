@@ -27,6 +27,12 @@ from lint import _load_skips, _posix  # noqa: E402
 
 SOURCE_DIR = "原始资料"
 
+# OS-generated artifacts that appear in a folder AFTER makeitdown has already
+# run (opening it in Explorer/Finder) — never seen by makeitdown, so counting
+# them would false-flag every such case as "源多于已处理" on files makeitdown
+# could never have processed.
+_OS_JUNK_NAMES = {"Thumbs.db", "desktop.ini", ".DS_Store"}
+
 
 def reconcile(root: Path) -> tuple[list[str], dict[str, int]]:
     """返回 (未处置告警列表, 统计)。纯函数，便于测试。
@@ -63,7 +69,8 @@ def reconcile(root: Path) -> tuple[list[str], dict[str, int]]:
     # 上次转换后新增、makeitdown 从未见过（report 与覆盖率都看不见它）。
     src_dir = root / SOURCE_DIR
     if src_dir.is_dir():
-        stats["source_total"] = sum(1 for p in src_dir.rglob("*") if p.is_file())
+        stats["source_total"] = sum(1 for p in src_dir.rglob("*")
+                                    if p.is_file() and p.name not in _OS_JUNK_NAMES)
         if stats["source_total"] > stats["accounted"]:
             stats["unresolved"] += 1
             unresolved.append(

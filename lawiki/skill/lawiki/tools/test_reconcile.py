@@ -69,6 +69,21 @@ def test_source_more_than_accounted_flags(tmp_path):
     assert any("源多于已处理" in w for w in unresolved)
 
 
+def test_os_junk_files_excluded_from_source_count(tmp_path):
+    # Thumbs.db/desktop.ini/.DS_Store are created by the OS *after* conversion
+    # (e.g. opening 原始资料/ in Explorer/Finder) and were never seen by
+    # makeitdown. Counting them would false-flag every such case as
+    # [源多于已处理] on a file makeitdown could never have processed.
+    root = _case(tmp_path, _report(succeeded=1))
+    (root / "原始资料" / "a.pdf").write_text("x", encoding="utf-8")
+    for junk in ("Thumbs.db", "desktop.ini", ".DS_Store"):
+        (root / "原始资料" / junk).write_text("", encoding="utf-8")
+    unresolved, stats = R.reconcile(root)
+    assert stats["source_total"] == 1           # junk files not counted
+    assert stats["unresolved"] == 0
+    assert unresolved == []
+
+
 def test_main_exit_codes(tmp_path):
     root = _case(tmp_path, _report(
         failed=1, failures=[{"file": "x.doc", "error": "boom"}]))
