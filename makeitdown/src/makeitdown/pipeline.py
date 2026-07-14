@@ -13,7 +13,7 @@ from .convert_ocr import OCRDispatcher
 from .frontmatter import build_frontmatter, prepend_frontmatter
 from .models import LegacyConversionUnavailable
 from .quality import QualityThresholds, assess
-from .router import classify
+from .router import IGNORED_FILENAMES, classify
 
 
 # 进度行状态字形（打到 stderr，供长任务时人/agent 感知进度；见 SKILL.md 长任务模式）。
@@ -36,7 +36,8 @@ def _progress_line(k: int, total: int, status: str, rel: Path,
 
 
 def _iter_files(input_dir: Path) -> list[Path]:
-    return sorted(p for p in input_dir.rglob("*") if p.is_file())
+    return sorted(p for p in input_dir.rglob("*")
+                 if p.is_file() and p.name not in IGNORED_FILENAMES)
 
 
 def _is_up_to_date(src: Path, md: Path) -> bool:
@@ -209,7 +210,12 @@ def convert_tree(
             return ("skipped_existing", rel, None, False, 0)
         route = classify(src, text_threshold=text_threshold)
         if route == "unsupported":
-            return ("skipped_unsupported", rel, None, False, 0)
+            # Non-empty detail so this lands in report["skipped"] (see the
+            # `and detail` guard below), not just the skipped_unsupported count —
+            # a downstream source-level audit (e.g. lawiki's reconcile.py) reads
+            # that list to catch source files that never entered the output dir.
+            return ("skipped_unsupported", rel,
+                    f"unsupported file type ({src.suffix or 'no extension'})", False, 0)
         try:
             source_type = src.suffix.lstrip(".")
             struct_reasons: list[str] = []

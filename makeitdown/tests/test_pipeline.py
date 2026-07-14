@@ -46,6 +46,51 @@ def test_convert_tree_writes_mirrored_md_and_report(tmp_path, monkeypatch):
     assert saved["succeeded"] == 2
 
 
+def test_unsupported_extension_lands_in_skipped_list_not_just_count(tmp_path):
+    # classify() itself (not mocked) routes unknown extensions to "unsupported"
+    # with detail=None — this must still surface a reason and land in the
+    # `skipped` list, not just bump the skipped_unsupported count. Otherwise a
+    # downstream account (e.g. lawiki's reconcile.py) that reads the `skipped`
+    # list to detect truly-unprocessed source files stays blind to it.
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "note.xyz123").write_bytes(b"\x00")  # not in NATIVE/IMAGE/LEGACY/pdf
+    out = tmp_path / "out"
+
+    report = pl.convert_tree(src, out, ocr_engine="auto", ocr_model="PP-StructureV3",
+                             cloud_token=None, workers=1, skip_existing=False,
+                             text_threshold=50, report_path=out / "report.json")
+
+    assert report["skipped_unsupported"] == 1
+    assert len(report["skipped"]) == 1
+    assert report["skipped"][0]["file"] == "note.xyz123"
+    assert report["skipped"][0]["reason"]  # non-empty, actionable
+
+
+def test_os_junk_files_are_not_reported_at_all(tmp_path):
+    # Thumbs.db/desktop.ini/.DS_Store are OS-generated, not case content — they
+    # must not even enter the report (not succeeded/failed/skipped/counted).
+    # Reporting them as "skipped_unsupported" would make a downstream source-level
+    # audit (lawiki's reconcile.py) flag them as an unresolved gap on a file
+    # nobody could ever "convert".
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "a.md").write_text("正常内容" * 5, encoding="utf-8")
+    (src / "Thumbs.db").write_bytes(b"\x00")
+    (src / "desktop.ini").write_text("[.ShellClassInfo]", encoding="utf-8")
+    (src / ".DS_Store").write_bytes(b"\x00")
+    out = tmp_path / "out"
+
+    report = pl.convert_tree(src, out, ocr_engine="auto", ocr_model="PP-StructureV3",
+                             cloud_token=None, workers=1, skip_existing=False,
+                             text_threshold=50, report_path=out / "report.json")
+
+    assert report["succeeded"] == 1
+    assert report["skipped_unsupported"] == 0
+    assert report["skipped"] == []
+    assert report["failed"] == 0
+
+
 def test_convert_tree_records_failures_without_aborting(tmp_path, monkeypatch):
     src = tmp_path / "in"
     src.mkdir()
