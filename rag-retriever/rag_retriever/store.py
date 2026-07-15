@@ -61,6 +61,11 @@ class VectorStore:
         # can detect "indexed with X, querying with Y" (which silently breaks
         # similarity). Separate sidecar to avoid touching the source manifest.
         self._index_meta_path = data_dir / "index_meta.json"
+        # Parent blocks for small-to-big retrieval, keyed by source and indexed by
+        # parent_ord. Sidecar (not a table column) so children stay the only indexed
+        # rows; empty/absent for indexes built without parent context.
+        self._parents_path = data_dir / "parents.json"
+        self._parents: dict[str, list[str]] = _read_json(self._parents_path, {})
         # One-shot guard so search_text self-heals a missing FTS index at most once
         # (e.g. rows added via a direct add() that bypassed the batch rebuild_fts()).
         self._fts_heal_attempted = False
@@ -69,6 +74,25 @@ class VectorStore:
         self._manifest_path.write_text(
             json.dumps(self._manifest, ensure_ascii=False, indent=2), "utf-8"
         )
+
+    def _save_parents(self) -> None:
+        self._parents_path.write_text(
+            json.dumps(self._parents, ensure_ascii=False), "utf-8"
+        )
+
+    def set_parents(self, source: str, parents: list[str]) -> None:
+        """Store (overwrite) the parent blocks for a source, indexed by parent_ord."""
+        self._parents[source] = list(parents)
+        self._save_parents()
+
+    def get_parent(self, source: str, ord: int | None) -> str | None:
+        """Parent block text for (source, parent_ord); None if absent/out of range."""
+        if ord is None:
+            return None
+        blocks = self._parents.get(source)
+        if blocks is None or ord < 0 or ord >= len(blocks):
+            return None
+        return blocks[ord]
 
     def _table(self, dim: int | None = None):
         # list_tables() (table_names() is deprecated) returns a paginated
@@ -92,6 +116,8 @@ class VectorStore:
             tbl.delete(f"source = '{_escape(source)}'")
         if self._manifest.pop(source, None) is not None:
             self._save_manifest()
+        if self._parents.pop(source, None) is not None:
+            self._save_parents()
 
     def add(
         self, source: str, chunks: list[str], vectors: list[list[float]],

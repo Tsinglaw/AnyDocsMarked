@@ -97,3 +97,30 @@ def test_search_no_prefix_unchanged(tmp_path):
     s.add("caseA/合同.md", ["表见代理"], [[1.0, 0.0, 0.0]], metas=[{"heading_path": ""}])
     s.add("caseB/判决.md", ["无权代理"], [[0.0, 1.0, 0.0]], metas=[{"heading_path": ""}])
     assert len(s.search([1.0, 0.0, 0.0], k=5)) == 2
+
+
+def test_parents_roundtrip(tmp_path):
+    s = VectorStore(tmp_path)
+    s.set_parents("doc.md", ["P0", "P1"])
+    assert s.get_parent("doc.md", 0) == "P0"
+    assert s.get_parent("doc.md", 1) == "P1"
+    assert s.get_parent("doc.md", 2) is None       # out of range
+    assert s.get_parent("doc.md", None) is None     # no parent_ord
+    assert s.get_parent("missing.md", 0) is None     # unknown source
+
+
+def test_parents_persist_across_instances(tmp_path):
+    VectorStore(tmp_path).set_parents("doc.md", ["P0"])
+    assert VectorStore(tmp_path).get_parent("doc.md", 0) == "P0"
+
+
+def test_delete_source_clears_parents(tmp_path):
+    s = VectorStore(tmp_path)
+    s.set_parents("doc.md", ["P0"])
+    s.delete_source("doc.md")
+    assert s.get_parent("doc.md", 0) is None
+
+
+def test_legacy_index_get_parent_is_none(tmp_path):
+    # Fresh store, no parents.json written → get_parent never raises, returns None.
+    assert VectorStore(tmp_path).get_parent("doc.md", 0) is None
