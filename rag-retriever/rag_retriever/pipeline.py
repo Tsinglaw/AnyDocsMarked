@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .chunk import Chunk, chunk_document
+from .chunk import Chunk, chunk_document, chunk_document_hierarchical
 from .config import Config
 from .embed import get_embedder
 from .extract import extract_text, iter_files
@@ -43,6 +43,18 @@ def _compose(chunk: Chunk) -> str:
     if chunk.heading_path:
         return f"{chunk.heading_path}\n\n{chunk.text}"
     return chunk.text
+
+
+def _chunk_meta(c: Chunk) -> dict:
+    """Per-chunk metadata: heading breadcrumb (when present) and parent_ord (when
+    the chunk came from the hierarchical path). Empty dict when neither applies —
+    keeps existing metadata tests (which expect no key when absent) green."""
+    m: dict = {}
+    if c.heading_path:
+        m["heading_path"] = c.heading_path
+    if c.parent_ord is not None:
+        m["parent_ord"] = c.parent_ord
+    return m
 
 
 def _relative_source(path: Path, source_root: str | Path | None) -> str:
@@ -93,17 +105,24 @@ class Retriever:
             if not text:
                 return {"source": source, "indexed": False, "chunks": 0,
                         "reason": "no extractable text (scanned image without OCR?)"}
-            doc_chunks = chunk_document(
-                text, self.cfg.chunk_tokens, self.cfg.chunk_overlap, self.cfg.chunk_strategy
-            )
+            if self.cfg.parent_context:
+                doc_chunks, parents = chunk_document_hierarchical(
+                    text, self.cfg.chunk_tokens, self.cfg.chunk_overlap,
+                    self.cfg.parent_tokens, self.cfg.chunk_strategy,
+                )
+            else:
+                doc_chunks = chunk_document(
+                    text, self.cfg.chunk_tokens, self.cfg.chunk_overlap, self.cfg.chunk_strategy
+                )
+                parents = None
             texts = [_compose(c) for c in doc_chunks]
-            # Omit the key for headingless chunks: {} is cleaner than {"heading_path": ""}
-            # and keeps existing metadata tests (which expect no key when absent) green.
-            metas = [{"heading_path": c.heading_path} if c.heading_path else {} for c in doc_chunks]
+            metas = [_chunk_meta(c) for c in doc_chunks]
             vectors = self.embedder.embed_documents(texts)
             meta = select_fields(read_frontmatter(path), self.cfg.metadata_fields)
             self.store.delete_source(source)
             n = self.store.add(source, texts, vectors, meta=meta, metas=metas)
+            if parents is not None:
+                self.store.set_parents(source, parents)
         except Exception as e:
             return {"source": source, "indexed": False, "chunks": 0,
                     "reason": f"{type(e).__name__}: {e}"}
@@ -151,7 +170,7 @@ class Retriever:
         sp = (source_prefix or "").strip() or None
         qvec = self.embedder.embed_query(query)
         if not self.cfg.hybrid:
-            return self.store.search(qvec, k=k, source_prefix=sp)
+            return self._attach_parents(self.store.search(qvec, k=k, source_prefix=sp))
         cand = max(k, self.cfg.hybrid_candidates)
         vector_hits = self.store.search(qvec, k=cand, source_prefix=sp)
         text_hits = self.store.search_text(query, k=cand, source_prefix=sp)
@@ -160,8 +179,22 @@ class Retriever:
         else:
             fused = vector_hits[:cand]
         if self.reranker is not None:
-            return self.reranker.rerank(query, fused, k)
-        return fused[:k]
+            return self._attach_parents(self.reranker.rerank(query, fused, k))
+        return self._attach_parents(fused[:k])
+
+    def _attach_parents(self, hits: list[dict]) -> list[dict]:
+        """Attach each hit's enclosing parent block (small-to-big) as `parent_text`.
+
+        Only when parent context is enabled — off is a no-op so hits keep exactly
+        today's shape (strictly non-breaking for existing consumers). `parent_text`
+        is None for a hit whose index predates parent context (legacy sidecar-less).
+        """
+        if not self.cfg.parent_context:
+            return hits
+        for h in hits:
+            ord_ = (h.get("metadata") or {}).get("parent_ord")
+            h["parent_text"] = self.store.get_parent(h["source"], ord_)
+        return hits
 
     def list_sources(self) -> list[dict]:
         return self.store.list_sources()
