@@ -105,6 +105,11 @@ class Config:
     # rerank meaningfully; the English ms-marco default did not.
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # parent-context (small-to-big) retrieval: index fine child chunks, return the
+    # enclosing parent block for context. Off by default (backward compatible).
+    parent_context: bool = False
+    parent_tokens: int = 1600
+
     @classmethod
     def load(cls) -> "Config":
         backend = _env("RAG_EMBED_BACKEND", "local").lower()
@@ -114,6 +119,10 @@ class Config:
             )
         model = _env("RAG_EMBED_MODEL", _DEFAULT_MODEL[backend])
         data_dir = Path(_env("RAG_DATA_DIR", str(Path.home() / ".rag-retriever" / "data")))
+        chunk_tokens = _env_int("RAG_CHUNK_TOKENS", _DEFAULT_CHUNK_TOKENS[backend])
+        # A parent must be materially larger than a child, else small-to-big
+        # degenerates into single-level chunking.
+        parent_tokens = max(_env_int("RAG_PARENT_TOKENS", 1600), chunk_tokens * 2)
         return cls(
             embed_backend=backend,
             embed_model=model,
@@ -122,7 +131,7 @@ class Config:
             openai_base_url=_env("RAG_OPENAI_BASE_URL", "https://api.siliconflow.cn/v1"),
             openai_api_key=_env("RAG_OPENAI_API_KEY", ""),
             data_dir=data_dir,
-            chunk_tokens=_env_int("RAG_CHUNK_TOKENS", _DEFAULT_CHUNK_TOKENS[backend]),
+            chunk_tokens=chunk_tokens,
             chunk_overlap=_env_int("RAG_CHUNK_OVERLAP", 100),
             metadata_fields=split_csv(_env("RAG_METADATA_FIELDS", "")),
             embed_batch_size=_env_int("RAG_EMBED_BATCH_SIZE", 64),
@@ -132,4 +141,6 @@ class Config:
             hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
             rerank=_env("RAG_RERANK", "none").lower(),
             rerank_model=_env("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
+            parent_context=_env_bool("RAG_PARENT_CONTEXT", False),
+            parent_tokens=parent_tokens,
         )

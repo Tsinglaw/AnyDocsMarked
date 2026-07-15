@@ -56,3 +56,26 @@ def test_hybrid_defaults(monkeypatch):
 def test_hybrid_can_be_disabled(monkeypatch):
     monkeypatch.setenv("RAG_HYBRID", "0")
     assert Config.load().hybrid is False
+
+
+def test_parent_context_defaults_off(monkeypatch):
+    monkeypatch.delenv("RAG_PARENT_CONTEXT", raising=False)
+    monkeypatch.delenv("RAG_PARENT_TOKENS", raising=False)
+    from rag_retriever.config import Config
+    cfg = Config.load()
+    assert cfg.parent_context is False
+    assert cfg.parent_tokens == 1600
+
+
+def test_parent_context_env_on(monkeypatch):
+    monkeypatch.setenv("RAG_PARENT_CONTEXT", "1")
+    from rag_retriever.config import Config
+    assert Config.load().parent_context is True
+
+
+def test_parent_tokens_floored_to_twice_child(monkeypatch):
+    # A parent must be materially larger than a child; a too-small value is floored.
+    monkeypatch.setenv("RAG_CHUNK_TOKENS", "800")
+    monkeypatch.setenv("RAG_PARENT_TOKENS", "500")
+    from rag_retriever.config import Config
+    assert Config.load().parent_tokens == 1600  # max(500, 800*2)
