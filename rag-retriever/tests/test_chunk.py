@@ -8,7 +8,20 @@ therefore never emit an oversized chunk, even when a single indivisible unit
 
 from __future__ import annotations
 
-from rag_retriever.chunk import chunk_text, count_tokens, Chunk, chunk_document, parse_sections
+import re
+
+from rag_retriever.chunk import (
+    chunk_text,
+    count_tokens,
+    Chunk,
+    chunk_document,
+    parse_sections,
+    chunk_document_hierarchical,
+)
+
+
+def _nows(s: str) -> str:
+    return re.sub(r"\s+", "", s)
 
 
 def test_short_text_is_one_chunk():
@@ -140,3 +153,54 @@ def test_structure_enumerated_marker_midbody_is_soft_boundary():
     docs = chunk_document(text, chunk_tokens=10, overlap=0, strategy="structure")
     joined = [c.text for c in docs]
     assert any("一、" in t and "二、" not in t for t in joined)
+
+
+def test_chunk_field_parent_ord_defaults_none():
+    assert Chunk("t", "h").parent_ord is None
+
+
+def test_single_level_chunks_have_no_parent_ord():
+    chunks = chunk_document("# H\n\nsome body text here", 800, 100, "structure")
+    assert all(c.parent_ord is None for c in chunks)
+
+
+def test_hierarchical_children_have_valid_parent_ord():
+    text = "\n\n".join(f"第{i}段：这是用于测试父子分块的中文内容，需要足够长以触发切分。" for i in range(20))
+    children, parents = chunk_document_hierarchical(
+        text, child_tokens=30, overlap=0, parent_tokens=90, strategy="structure"
+    )
+    assert len(parents) >= 2
+    assert len(children) > len(parents)
+    assert all(c.parent_ord is not None and 0 <= c.parent_ord < len(parents) for c in children)
+
+
+def test_hierarchical_children_cover_their_parent():
+    text = "\n\n".join(f"第{i}段：这是用于测试父子分块的中文内容，需要足够长以触发切分。" for i in range(20))
+    children, parents = chunk_document_hierarchical(
+        text, child_tokens=30, overlap=0, parent_tokens=90, strategy="structure"
+    )
+    for ord_ in range(len(parents)):
+        group = [c.text for c in children if c.parent_ord == ord_]
+        assert group, f"parent {ord_} has no children"
+        # overlap=0 → children re-joined reproduce the parent's non-whitespace content.
+        assert _nows("".join(group)) == _nows(parents[ord_])
+
+
+def test_hierarchical_parent_does_not_cross_section():
+    text = "# 甲节\n\n" + ("甲内容需要足够长。" * 20) + "\n\n# 乙节\n\n" + ("乙内容需要足够长。" * 20)
+    children, parents = chunk_document_hierarchical(
+        text, child_tokens=30, overlap=0, parent_tokens=200, strategy="structure"
+    )
+    for p in parents:
+        assert not ("甲内容" in p and "乙内容" in p), "a parent block spanned two sections"
+    paths = {c.heading_path for c in children}
+    assert "甲节" in paths and "乙节" in paths
+
+
+def test_hierarchical_keeps_table_atomic():
+    table = "| 项目 | 金额 |\n| --- | --- |\n| 货款 | 500000 |\n| 利息 | 12000 |"
+    text = "## 表\n\n" + table
+    children, parents = chunk_document_hierarchical(
+        text, child_tokens=200, overlap=0, parent_tokens=400, strategy="structure"
+    )
+    assert any("项目" in c.text and "货款" in c.text and "利息" in c.text for c in children)

@@ -28,11 +28,13 @@ class Chunk:
     """A chunk plus the heading breadcrumb of the section it came from.
 
     `heading_path` is a " > "-joined trail like "民事判决书 > 本院认为", or "" when
-    the chunk has no enclosing markdown heading.
+    the chunk has no enclosing markdown heading. `parent_ord`, when set, indexes
+    the document's parent-block list (small-to-big retrieval); None for single-level.
     """
 
     text: str
     heading_path: str
+    parent_ord: int | None = None
 
 
 @dataclass(frozen=True)
@@ -273,3 +275,47 @@ def chunk_document(
         for piece in _pack_units(units, chunk_tokens, overlap):
             out.append(Chunk(text=piece, heading_path=sec.heading_path))
     return out
+
+
+def chunk_document_hierarchical(
+    text: str,
+    child_tokens: int = 384,
+    overlap: int = 100,
+    parent_tokens: int = 1600,
+    strategy: str = "structure",
+) -> tuple[list[Chunk], list[str]]:
+    """Two-level structure-aware chunking for small-to-big retrieval.
+
+    Within each section, pack units into large PARENT blocks (no overlap), then
+    split each parent into small CHILD chunks (with overlap). Children carry
+    parent_ord into the returned `parents` list. Only children are meant to be
+    embedded/indexed; parents are stored for context lookup at search time.
+
+    Returns (children, parents). `parents[i]` is raw parent text (no breadcrumb);
+    the child text is composed with its breadcrumb by the pipeline, as before.
+    """
+    text = text.strip()
+    if not text:
+        return [], []
+    sections = (
+        parse_sections(text) if strategy == "structure" else [Section(heading_path="", body=text)]
+    )
+    children: list[Chunk] = []
+    parents: list[str] = []
+    for sec in sections:
+        if strategy == "structure":
+            section_units = _split_structured_units(sec.body, parent_tokens)
+        else:
+            section_units = _split_units(sec.body, parent_tokens)
+        for parent_text in _pack_units(section_units, parent_tokens, overlap=0):
+            parent_ord = len(parents)
+            parents.append(parent_text)
+            if strategy == "structure":
+                child_units = _split_structured_units(parent_text, child_tokens)
+            else:
+                child_units = _split_units(parent_text, child_tokens)
+            for piece in _pack_units(child_units, child_tokens, overlap):
+                children.append(
+                    Chunk(text=piece, heading_path=sec.heading_path, parent_ord=parent_ord)
+                )
+    return children, parents
