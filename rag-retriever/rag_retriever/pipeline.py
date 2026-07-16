@@ -170,17 +170,17 @@ class Retriever:
         sp = (source_prefix or "").strip() or None
         qvec = self.embedder.embed_query(query)
         if not self.cfg.hybrid:
-            return self._attach_parents(self.store.search(qvec, k=k, source_prefix=sp))
-        cand = max(k, self.cfg.hybrid_candidates)
-        vector_hits = self.store.search(qvec, k=cand, source_prefix=sp)
-        text_hits = self.store.search_text(query, k=cand, source_prefix=sp)
-        if text_hits:
-            fused = _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, cand)
+            hits = self.store.search(qvec, k=k, source_prefix=sp)
         else:
-            fused = vector_hits[:cand]
-        if self.reranker is not None:
-            return self._attach_parents(self.reranker.rerank(query, fused, k))
-        return self._attach_parents(fused[:k])
+            cand = max(k, self.cfg.hybrid_candidates)
+            vector_hits = self.store.search(qvec, k=cand, source_prefix=sp)
+            text_hits = self.store.search_text(query, k=cand, source_prefix=sp)
+            if text_hits:
+                fused = _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, cand)
+            else:
+                fused = vector_hits[:cand]
+            hits = self.reranker.rerank(query, fused, k) if self.reranker is not None else fused[:k]
+        return self._attach_parents(hits)
 
     def _attach_parents(self, hits: list[dict]) -> list[dict]:
         """Attach each hit's enclosing parent block (small-to-big) as `parent_text`.

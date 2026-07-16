@@ -41,6 +41,11 @@ def _read_json(path: Path, default):
     return default
 
 
+def _write_json(path: Path, data, *, indent: int | None = None) -> None:
+    """Write `data` as JSON to `path` (UTF-8, non-ASCII preserved)."""
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=indent), "utf-8")
+
+
 def _parse_meta(row: dict) -> dict:
     """Deserialize a search-result row's stored meta JSON, tolerating absence/corruption."""
     try:
@@ -71,14 +76,10 @@ class VectorStore:
         self._fts_heal_attempted = False
 
     def _save_manifest(self) -> None:
-        self._manifest_path.write_text(
-            json.dumps(self._manifest, ensure_ascii=False, indent=2), "utf-8"
-        )
+        _write_json(self._manifest_path, self._manifest, indent=2)
 
     def _save_parents(self) -> None:
-        self._parents_path.write_text(
-            json.dumps(self._parents, ensure_ascii=False), "utf-8"
-        )
+        _write_json(self._parents_path, self._parents)
 
     def set_parents(self, source: str, parents: list[str]) -> None:
         """Store (overwrite) the parent blocks for a source, indexed by parent_ord."""
@@ -264,10 +265,7 @@ class VectorStore:
 
     def record_model(self, backend: str, model: str) -> None:
         """Persist the embedding model used to build this index."""
-        self._index_meta_path.write_text(
-            json.dumps({"backend": backend, "model": model}, ensure_ascii=False, indent=2),
-            "utf-8",
-        )
+        _write_json(self._index_meta_path, {"backend": backend, "model": model}, indent=2)
 
     def model_info(self) -> dict | None:
         """The persisted index-time embedding model, or None if never indexed."""

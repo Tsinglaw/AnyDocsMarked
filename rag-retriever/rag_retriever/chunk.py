@@ -277,6 +277,14 @@ def chunk_document(
     return out
 
 
+def _units_for(strategy: str, body: str, max_tokens: int) -> list[str]:
+    """Split `body` into units per `strategy`: structure-aware (tables/legal
+    markers) or plain token-based. Shared by both packing levels below."""
+    if strategy == "structure":
+        return _split_structured_units(body, max_tokens)
+    return _split_units(body, max_tokens)
+
+
 def chunk_document_hierarchical(
     text: str,
     child_tokens: int = 384,
@@ -303,17 +311,11 @@ def chunk_document_hierarchical(
     children: list[Chunk] = []
     parents: list[str] = []
     for sec in sections:
-        if strategy == "structure":
-            section_units = _split_structured_units(sec.body, parent_tokens)
-        else:
-            section_units = _split_units(sec.body, parent_tokens)
+        section_units = _units_for(strategy, sec.body, parent_tokens)
         for parent_text in _pack_units(section_units, parent_tokens, overlap=0):
             parent_ord = len(parents)
             parents.append(parent_text)
-            if strategy == "structure":
-                child_units = _split_structured_units(parent_text, child_tokens)
-            else:
-                child_units = _split_units(parent_text, child_tokens)
+            child_units = _units_for(strategy, parent_text, child_tokens)
             for piece in _pack_units(child_units, child_tokens, overlap):
                 children.append(
                     Chunk(text=piece, heading_path=sec.heading_path, parent_ord=parent_ord)
