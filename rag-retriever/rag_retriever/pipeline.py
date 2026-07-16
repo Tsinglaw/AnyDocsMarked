@@ -38,6 +38,17 @@ def _rrf_fuse(vector_hits: list[dict], text_hits: list[dict], rrf_k: int, k: int
     return fused[:k]
 
 
+def _above_floor(hits: list[dict], floor: float) -> list[dict]:
+    """Drop hits whose (cosine) score is below floor. No-op when floor <= 0.
+
+    Applied to the vector channel only — BM25/keyword hits are never filtered,
+    so a legal exact-term match (amount, statute number) still surfaces even
+    when its vector similarity is weak."""
+    if floor <= 0.0:
+        return hits
+    return [h for h in hits if h["score"] >= floor]
+
+
 def _compose(chunk: Chunk) -> str:
     """Stored/embedded text: breadcrumb-prefixed so the vector carries section context."""
     if chunk.heading_path:
@@ -170,10 +181,12 @@ class Retriever:
         sp = (source_prefix or "").strip() or None
         qvec = self.embedder.embed_query(query)
         if not self.cfg.hybrid:
-            hits = self.store.search(qvec, k=k, source_prefix=sp)
+            hits = _above_floor(self.store.search(qvec, k=k, source_prefix=sp), self.cfg.min_score)
         else:
             cand = max(k, self.cfg.hybrid_candidates)
-            vector_hits = self.store.search(qvec, k=cand, source_prefix=sp)
+            vector_hits = _above_floor(
+                self.store.search(qvec, k=cand, source_prefix=sp), self.cfg.min_score
+            )
             text_hits = self.store.search_text(query, k=cand, source_prefix=sp)
             if text_hits:
                 fused = _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, cand)

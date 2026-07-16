@@ -165,3 +165,102 @@ def test_index_file_parent_context_writes_ords_and_parents(monkeypatch, tmp_path
     # Parents were stored, and every child carries a valid parent_ord.
     assert r.store.get_parent("doc.md", 0) is not None
     assert r.store.list_sources()[0]["source"] == "doc.md"
+
+
+def test_search_min_score_default_zero_is_noop(tmp_path):
+    cfg = Config.load()
+    cfg = type(cfg)(**{**cfg.__dict__, "data_dir": tmp_path, "hybrid": False})
+    assert cfg.min_score == 0.0
+
+    r = pipeline_mod.Retriever(cfg)
+    r._embedder = _FakeEmbedder()
+
+    class _S:
+        def search(self, vec, k, source_prefix=None):
+            return [{"source": "d", "ord": 0, "text": "low", "score": 0.01, "metadata": {}}]
+        def search_text(self, q, k, source_prefix=None):
+            return []
+
+    r.store = _S()
+    hits = r.search("query", k=5)
+    assert hits and hits[0]["text"] == "low"  # floor is off, nothing is dropped
+
+
+def test_search_min_score_filters_pure_vector_path(tmp_path):
+    cfg = Config.load()
+    cfg = type(cfg)(**{**cfg.__dict__, "data_dir": tmp_path, "hybrid": False, "min_score": 0.6})
+    r = pipeline_mod.Retriever(cfg)
+    r._embedder = _FakeEmbedder()
+
+    class _S:
+        def search(self, vec, k, source_prefix=None):
+            return [
+                {"source": "d", "ord": 0, "text": "strong", "score": 0.9, "metadata": {}},
+                {"source": "d", "ord": 1, "text": "weak", "score": 0.4, "metadata": {}},
+            ]
+        def search_text(self, q, k, source_prefix=None):
+            return []
+
+    r.store = _S()
+    hits = r.search("query", k=5)
+    assert [h["text"] for h in hits] == ["strong"]
+
+
+def test_search_min_score_hybrid_preserves_keyword_only_hits(tmp_path):
+    # Core contract: BM25/keyword hits must survive even when their vector
+    # similarity is below the floor; a pure-vector hit below the floor with
+    # no keyword match must be dropped.
+    cfg = Config.load()
+    cfg = type(cfg)(**{
+        **cfg.__dict__, "data_dir": tmp_path, "hybrid": True, "min_score": 0.6, "rerank": "none",
+    })
+    r = pipeline_mod.Retriever(cfg)
+    r._embedder = _FakeEmbedder()
+
+    class _S:
+        def search(self, vec, k, source_prefix=None):
+            return [
+                {"source": "d", "ord": 0, "text": "strong_vec", "score": 0.9, "metadata": {}},
+                {"source": "d", "ord": 1, "text": "weak_vec_no_kw", "score": 0.2, "metadata": {}},
+                {"source": "d", "ord": 2, "text": "weak_vec_with_kw", "score": 0.2, "metadata": {}},
+            ]
+        def search_text(self, q, k, source_prefix=None):
+            return [{"source": "d", "ord": 2, "text": "weak_vec_with_kw", "score": 5.0, "metadata": {}}]
+
+    r.store = _S()
+    hits = r.search("query", k=5)
+    ids = {(h["source"], h["ord"]) for h in hits}
+    assert ("d", 0) in ids       # strong vector match: survives
+    assert ("d", 2) in ids       # weak vector but BM25-matched: survives via keyword channel
+    assert ("d", 1) not in ids   # weak vector, no keyword match: dropped
+
+
+def test_search_min_score_all_filtered_returns_empty(tmp_path):
+    cfg = Config.load()
+    cfg = type(cfg)(**{**cfg.__dict__, "data_dir": tmp_path, "hybrid": False, "min_score": 0.99})
+    r = pipeline_mod.Retriever(cfg)
+    r._embedder = _FakeEmbedder()
+
+    class _S:
+        def search(self, vec, k, source_prefix=None):
+            return [{"source": "d", "ord": 0, "text": "low", "score": 0.5, "metadata": {}}]
+        def search_text(self, q, k, source_prefix=None):
+            return []
+
+    r.store = _S()
+    assert r.search("query", k=5) == []
+
+
+def test_search_min_score_with_parent_context_still_attaches(monkeypatch, tmp_path):
+    # Filtering happens before _attach_parents; a surviving hit still gets
+    # parent_text when parent_context is on.
+    text = "# 合同\n\n" + "\n\n".join(f"第{i}条 关于货款与违约金的约定条款。" for i in range(30))
+    r = _real_store_retriever(
+        monkeypatch, tmp_path, text,
+        parent_context=True, parent_tokens=120, chunk_tokens=30,
+        chunk_overlap=0, hybrid=False, rerank="none", min_score=0.5,
+    )
+    r.index_file(tmp_path / "doc.md", source_root=tmp_path)
+    hits = r.search("货款 违约金", k=3)
+    assert hits
+    assert hits[0]["parent_text"]

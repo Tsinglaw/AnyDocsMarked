@@ -55,6 +55,7 @@ cp .env.example .env   # then pick your embedding backend
 | `RAG_HYBRID` | `1` | BM25+vector RRF; `0` for pure vector |
 | `RAG_RRF_K` | `60` | RRF constant |
 | `RAG_HYBRID_CANDIDATES` | `50` | per-channel candidate pool before fusion |
+| `RAG_MIN_SCORE` | `0` | cosine-similarity floor on the vector channel only (`0` = off). Hits below it are dropped before fusion/rerank; BM25/keyword hits are never filtered, so an exact-term match still surfaces |
 | `RAG_RERANK` | `none` | `none` (zero-model) / `local` (fastembed multilingual cross-encoder `BAAI/bge-reranker-v2-m3`, suitable for Chinese) / `cloud` |
 | `RAG_PARENT_CONTEXT` | `false` | enable small-to-big retrieval — index fine-grained child chunks for precision and return each hit's enclosing parent block (as `parent_text`) for context. Requires a re-index to populate parents |
 | `RAG_PARENT_TOKENS` | `1600` | target size of a parent block in tokens (floored to `2 × RAG_CHUNK_TOKENS`). Only used when `RAG_PARENT_CONTEXT` is on |
