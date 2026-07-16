@@ -79,3 +79,21 @@ def test_parent_tokens_floored_to_twice_child(monkeypatch):
     monkeypatch.setenv("RAG_PARENT_TOKENS", "500")
     from rag_retriever.config import Config
     assert Config.load().parent_tokens == 1600  # max(500, 800*2)
+
+
+def test_min_score_defaults_to_zero(monkeypatch):
+    monkeypatch.delenv("RAG_MIN_SCORE", raising=False)
+    from rag_retriever.config import Config
+    assert Config.load().min_score == 0.0
+
+
+def test_min_score_env_parses_float(monkeypatch):
+    monkeypatch.setenv("RAG_MIN_SCORE", "0.35")
+    from rag_retriever.config import Config
+    assert Config.load().min_score == 0.35
+
+
+def test_min_score_invalid_value_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("RAG_MIN_SCORE", "not-a-number")
+    from rag_retriever.config import Config
+    assert Config.load().min_score == 0.0

@@ -31,6 +31,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def split_csv(s: str) -> tuple[str, ...]:
     """Parse a comma-separated list into a tuple of non-empty trimmed fields."""
     return tuple(f.strip() for f in s.split(",") if f.strip())
@@ -105,6 +112,12 @@ class Config:
     # rerank meaningfully; the English ms-marco default did not.
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # Vector-channel relevance floor (cosine similarity). Hits with score below
+    # this are dropped before fusion/rerank; BM25/keyword hits are never
+    # filtered by this. 0.0 (default) = off, byte-identical to before this
+    # feature. Only meaningful in (0, 1] — cosine similarity's range.
+    min_score: float = 0.0
+
     # parent-context (small-to-big) retrieval: index fine child chunks, return the
     # enclosing parent block for context. Off by default (backward compatible).
     parent_context: bool = False
@@ -141,6 +154,7 @@ class Config:
             hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
             rerank=_env("RAG_RERANK", "none").lower(),
             rerank_model=_env("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
+            min_score=_env_float("RAG_MIN_SCORE", 0.0),
             parent_context=_env_bool("RAG_PARENT_CONTEXT", False),
             parent_tokens=parent_tokens,
         )
