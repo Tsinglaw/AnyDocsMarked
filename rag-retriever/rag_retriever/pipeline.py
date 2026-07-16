@@ -181,12 +181,10 @@ class Retriever:
         sp = (source_prefix or "").strip() or None
         qvec = self.embedder.embed_query(query)
         if not self.cfg.hybrid:
-            hits = _above_floor(self.store.search(qvec, k=k, source_prefix=sp), self.cfg.min_score)
+            hits = self._vector_search(qvec, k, sp)
         else:
             cand = max(k, self.cfg.hybrid_candidates)
-            vector_hits = _above_floor(
-                self.store.search(qvec, k=cand, source_prefix=sp), self.cfg.min_score
-            )
+            vector_hits = self._vector_search(qvec, cand, sp)
             text_hits = self.store.search_text(query, k=cand, source_prefix=sp)
             if text_hits:
                 fused = _rrf_fuse(vector_hits, text_hits, self.cfg.rrf_k, cand)
@@ -194,6 +192,12 @@ class Retriever:
                 fused = vector_hits[:cand]
             hits = self.reranker.rerank(query, fused, k) if self.reranker is not None else fused[:k]
         return self._attach_parents(hits)
+
+    def _vector_search(self, qvec: list[float], k: int, source_prefix: str | None) -> list[dict]:
+        """Vector-channel search with the relevance floor applied — the single
+        choke point so every store.search() call in this class stays filtered
+        (a future third call site can't forget to wrap it)."""
+        return _above_floor(self.store.search(qvec, k=k, source_prefix=source_prefix), self.cfg.min_score)
 
     def _attach_parents(self, hits: list[dict]) -> list[dict]:
         """Attach each hit's enclosing parent block (small-to-big) as `parent_text`.
