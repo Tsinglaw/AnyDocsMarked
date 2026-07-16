@@ -127,3 +127,17 @@ def test_search_without_filter_defaults_none(monkeypatch, capsys):
     _run(monkeypatch, ["rag-retriever", "search", "表见代理", "--json"])
     capsys.readouterr()
     assert FakeRetriever.last_search["source_prefix"] is None
+
+
+def test_search_show_parent_prints_parent_block(monkeypatch, capsys):
+    class ParentRetriever(FakeRetriever):
+        def search(self, query, k=5, source_prefix=None):
+            return [{"source": "doc.md", "ord": 0, "text": "child", "score": 0.9,
+                     "metadata": {}, "parent_text": "THE PARENT BLOCK"}]
+
+    monkeypatch.setattr(cli, "Retriever", ParentRetriever)
+    monkeypatch.setattr(sys, "argv", ["rag-retriever", "search", "q", "--show-parent"])
+    cli.main()
+    out = capsys.readouterr().out
+    assert "child" in out
+    assert "THE PARENT BLOCK" in out

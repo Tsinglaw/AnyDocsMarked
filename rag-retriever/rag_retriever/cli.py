@@ -69,6 +69,10 @@ def main() -> None:
         "--filter", dest="source_prefix", default=None,
         help="scope search to sources under this path prefix (e.g. a case dir)",
     )
+    p_search.add_argument(
+        "--show-parent", action="store_true",
+        help="also print each hit's enclosing parent block (small-to-big context)",
+    )
 
     sub.add_parser("list", help="list indexed documents")
     sub.add_parser("stats", help="show status")
@@ -113,6 +117,8 @@ def main() -> None:
         for i, h in enumerate(hits, 1):
             print(f"\n[{i}] {h['source']} (chunk {h['ord']}, score {h['score']})")
             print(h["text"])
+            if args.show_parent and h.get("parent_text"):
+                print(f"--- parent ---\n{h['parent_text']}")
     elif args.cmd == "list":
         print(json.dumps(r.list_sources(), ensure_ascii=False, indent=2))
     elif args.cmd == "stats":

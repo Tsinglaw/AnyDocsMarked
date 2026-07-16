@@ -56,6 +56,8 @@ cp .env.example .env   # then pick your embedding backend
 | `RAG_RRF_K` | `60` | RRF constant |
 | `RAG_HYBRID_CANDIDATES` | `50` | per-channel candidate pool before fusion |
 | `RAG_RERANK` | `none` | `none` (zero-model) / `local` (fastembed multilingual cross-encoder `BAAI/bge-reranker-v2-m3`, suitable for Chinese) / `cloud` |
+| `RAG_PARENT_CONTEXT` | `false` | enable small-to-big retrieval — index fine-grained child chunks for precision and return each hit's enclosing parent block (as `parent_text`) for context. Requires a re-index to populate parents |
+| `RAG_PARENT_TOKENS` | `1600` | target size of a parent block in tokens (floored to `2 × RAG_CHUNK_TOKENS`). Only used when `RAG_PARENT_CONTEXT` is on |
 
 ### Retrieval quality
 
@@ -76,6 +78,7 @@ legal section markers (第X条, 本院认为, …) are preferred split points. S
 ```bash
 uv run rag-retriever index "C:\path\to\docs"     # a file or a whole folder
 uv run rag-retriever search "什么是表见代理" -k 5
+uv run rag-retriever search "什么是表见代理" --show-parent   # also print each hit's parent block (needs RAG_PARENT_CONTEXT=1)
 uv run rag-retriever list
 uv run rag-retriever stats
 uv run rag-retriever doctor          # check manifest vs table; add --fix to repair

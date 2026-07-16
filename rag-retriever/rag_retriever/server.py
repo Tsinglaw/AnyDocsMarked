@@ -73,9 +73,10 @@ def search(query: str, k: int = 5, source_prefix: str = "") -> str:
         return "No relevant passages found (is anything indexed yet? run index_path first)."
     parts = []
     for i, h in enumerate(hits, 1):
-        parts.append(
-            f"[{i}] source={h['source']} (chunk {h['ord']}, score {h['score']})\n{h['text']}"
-        )
+        block = f"[{i}] source={h['source']} (chunk {h['ord']}, score {h['score']})\n{h['text']}"
+        if h.get("parent_text"):
+            block += f"\n[context] {h['parent_text']}"
+        parts.append(block)
     return "\n\n---\n\n".join(parts)
 
 
