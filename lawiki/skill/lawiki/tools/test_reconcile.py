@@ -44,6 +44,23 @@ def test_registered_skip_resolves(tmp_path):
     assert unresolved == []
 
 
+def test_registered_skip_without_reason_remains_unresolved(tmp_path):
+    log = "# log\n\n## [2026-07-13] skip | 原始资料/章程.doc\n"
+    root = _case(
+        tmp_path,
+        _report(
+            skipped_unsupported=1,
+            skipped=[{"file": "章程.doc", "reason": "needs LibreOffice"}],
+        ),
+        log_md=log,
+    )
+
+    unresolved, stats = R.reconcile(root)
+
+    assert stats["registered"] == 0 and stats["unresolved"] == 1
+    assert unresolved == ["[跳过无原因] 原始资料/章程.doc"]
+
+
 def test_all_produced_passes(tmp_path):
     root = _case(tmp_path, _report(succeeded=3))
     unresolved, stats = R.reconcile(root)

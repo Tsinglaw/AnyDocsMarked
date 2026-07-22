@@ -6,14 +6,14 @@
   python lint.py extract <案件根目录>            # 抽 claim↔引文清单(JSON)，供换实例判官做蕴含校验
   python lint.py answer  <案件根目录> <草稿.md>  # 问答交付闸门：锚点全验+闭世界+整篇兜底
 
-check 五类：① 锚点存在（EXTRACTED 硬底线）② 死链 ③ 时间线顺序 ④ 勾稽闭合
-（`> [!check] a+b==c`）⑤ 覆盖率（警告，三态：已引用/登记跳过/未处置，账本为
+check 六类：① 锚点存在 + 闭世界 ② 来源哈希 ③ 死链 ④ 时间线顺序 ⑤ 勾稽闭合
+（`> [!check] a+b==c`）⑥ 覆盖率（完整性警告，三态：已引用/登记跳过/未处置，账本为
 wiki/log.md 的 skip 条目）。只消格式噪声、数字与文字精确——
 "数字写错/张冠李戴"必被抓、"换行差异"不误报。详见 SKILL.md / references/verification.md。
 """
 import ast
+import hashlib
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -90,6 +90,88 @@ def _load_pages(wiki: Path, root: Path) -> list[tuple[Path, str, str]]:
             for md in sorted(wiki.rglob("*.md"))]
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _frontmatter_fields_and_body(text: str) -> tuple[dict[str, str], str]:
+    """Parse makeitdown's deliberately-simple scalar frontmatter without YAML."""
+    match = re.match(
+        r"\A---(?:\r\n|\n)(.*?)(?:\r\n|\n)---(?:\r\n|\n)(?:\r\n|\n)",
+        text,
+        flags=re.DOTALL,
+    )
+    if match is None:
+        return {}, text
+    raw, body = match.group(1), text[match.end():]
+    fields: dict[str, str] = {}
+    for line in raw.splitlines():
+        if ":" not in line or line.startswith((" ", "-")):
+            continue
+        key, value = line.split(":", 1)
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+        fields[key.strip()] = value
+    return fields, body
+
+
+PROVENANCE_VERSION = "1"
+
+
+def _check_provenance(root: Path) -> tuple[list[str], list[str]]:
+    """Verify versioned Makeitdown provenance; legacy inputs stay readable but block completion."""
+    violations: list[str] = []
+    warnings: list[str] = []
+    md_root = root / "_md"
+    if not md_root.is_dir():
+        return violations, warnings
+    for md in sorted(md_root.rglob("*.md")):
+        rel = md.relative_to(root).as_posix()
+        # newline="" preserves the exact body bytes represented as text. Using
+        # Path.read_text() would normalize CRLF to LF and falsely report a hash
+        # mismatch for faithfully converted Windows documents.
+        with md.open("r", encoding="utf-8", newline="") as fh:
+            fields, body = _frontmatter_fields_and_body(fh.read())
+        version = fields.get("provenance_version")
+        if version is None:
+            warnings.append(
+                f"[旧版来源] {rel}\n          缺 provenance_version；重跑 makeitdown 后才能完成 ingest"
+            )
+        elif version != PROVENANCE_VERSION:
+            violations.append(
+                f"[来源版本不支持] {rel}\n          provenance_version: {version}"
+            )
+        elif missing := [
+            field for field in ("source", "source_sha256", "content_sha256") if not fields.get(field)
+        ]:
+            violations.append(
+                f"[来源元数据缺失] {rel}\n          provenance_version=1 缺字段: {', '.join(missing)}"
+            )
+        source_hash = fields.get("source_sha256")
+        content_hash = fields.get("content_sha256")
+        if source_hash:
+            source_rel = fields.get("source", "")
+            source = (root / "原始资料" / source_rel).resolve()
+            source_root = (root / "原始资料").resolve()
+            if not source.is_relative_to(source_root) or not source.is_file():
+                violations.append(f"[溯源缺原件] {rel}\n          source: {source_rel}")
+            elif _sha256_file(source) != source_hash:
+                violations.append(f"[原件哈希不符] {rel}\n          原始资料/{source_rel} 已变化")
+        if content_hash:
+            actual = hashlib.sha256(body.encode("utf-8")).hexdigest()
+            if actual != content_hash:
+                violations.append(f"[转换正文哈希不符] {rel}\n          _md 内容在转换后被修改")
+    return violations, warnings
+
+
 # ───────────────────────── check：五类确定性检查 ─────────────────────────
 
 def _page_names(pages: list[tuple[Path, str, str]]) -> set[str]:
@@ -104,23 +186,34 @@ def _page_names(pages: list[tuple[Path, str, str]]) -> set[str]:
 
 def _check_anchors(root: Path, pages: list[tuple[Path, str, str]]
                    ) -> tuple[list[str], set[str], int]:
-    """① 锚点存在。返回 (违规, 被引用源文件集合, 锚点总数)。"""
-    cache: dict[Path, str] = {}
+    """① 锚点存在且闭世界。返回 (违规, 被引用源文件集合, 锚点总数)。
+
+    wiki 与回答共用同一条安全边界：解析后的来源必须真实落在本案 ``_md/``
+    内。不能只检查字符串前缀，否则 ``_md/../`` 与符号链接都能逃逸。
+    """
+    cache: dict[Path, tuple[str, str]] = {}
     violations: list[str] = []
     cited: set[str] = set()
     total = 0
+    evidence_root = (root / "_md").resolve()
     for _md, where, text in pages:
         for m in ANCHOR_RE.finditer(text):
             total += 1
             rel, snippet = m.group(1).strip(), m.group(2)
-            cited.add(rel)
-            src = root / rel
+            src = (root / rel).resolve()
+            if not src.is_relative_to(evidence_root):
+                violations.append(
+                    f"[闭世界] {where}\n          锚点指向本案 _md/ 之外: {rel}")
+                continue
+            cited.add(src.relative_to(root.resolve()).as_posix())
             if not src.is_file():
                 violations.append(f"[缺文件] {where}\n          所指来源不存在: {rel}")
                 continue
             if src not in cache:
-                cache[src] = norm(src.read_text(encoding="utf-8"))
-            body = cache[src]
+                raw = src.read_text(encoding="utf-8")
+                fields, source_body = _frontmatter_fields_and_body(raw)
+                cache[src] = norm(source_body), fields.get("quality", "")
+            body, quality = cache[src]
             pos, missing = 0, None
             for frag in _fragments(snippet):
                 nf = norm(frag)
@@ -132,6 +225,11 @@ def _check_anchors(root: Path, pages: list[tuple[Path, str, str]]
             if missing is not None:
                 violations.append(
                     f"[片段不符] {where}\n          来源: {rel}\n          找不到片段: 「{missing}」")
+            if quality == "suspect" and not re.match(r"[ \t]*（未核验）", text[m.end():]):
+                violations.append(
+                    f"[可疑来源未标注] {where}\n          来源: {rel}\n"
+                    "          quality=suspect 的锚点后必须紧跟（未核验）"
+                )
     return violations, cited, total
 
 
@@ -208,8 +306,10 @@ def _check_closures(pages: list[tuple[Path, str, str]]) -> list[str]:
             if not m:
                 continue
             raw = m.group(1).strip()
-            m2 = re.match(r"\s*([0-9,\s+\-*().]+==[0-9,\s+\-*().]+)",
-                          raw.translate(_NUM_PUNCT))
+            m2 = re.fullmatch(
+                r"\s*([0-9,\s+\-*().]+==[0-9,\s+\-*().]+)\s*",
+                raw.translate(_NUM_PUNCT),
+            )
             if not m2:
                 violations.append(f"[勾稽无法解析] {where}\n          {raw}")
                 continue
@@ -285,10 +385,23 @@ def scan_case(root: Path) -> tuple[int, list[str], list[str], dict[str, int]]:
     pages = _load_pages(wiki, root)
     names = _page_names(pages)
     violations, cited, total = _check_anchors(root, pages)
+    provenance_violations, provenance_warnings = _check_provenance(root)
+    violations += provenance_violations
     violations += _check_deadlinks(pages, names)
     violations += _check_timeline_order(pages)
     violations += _check_closures(pages)
+    for _md, where, text in pages:
+        if Path(where).name == "log.md":
+            continue
+        for lineno, line in _unanchored_factual_lines(
+            text, allowed_title_heading=Path(where).stem, allow_navigation=True,
+        ):
+            violations.append(
+                f"[Wiki 裸事实] {where}:{lineno}\n"
+                f"          分析标注之外的实质内容未挂锚点: {line}"
+            )
     warnings, coverage = _check_coverage(root, cited)
+    warnings = provenance_warnings + warnings
     return total, violations, warnings, coverage
 
 
@@ -325,43 +438,133 @@ def check_answer_anchors(root: Path, text: str, where: str) -> tuple[int, list[s
     """① 锚点全验（复用 _check_anchors）② 闭世界（锚点须指向本案 _md/）。
     供 answer 闸门与 Stop hook 共用——hook 只跑这两项（零误报，无锚点不拦），
     「整篇兜底」归 scan_answer。返回 (锚点总数, 违规)。"""
-    violations, cited, total = _check_anchors(root, [(root / where, where, text)])
-    for rel in sorted(cited):
-        # 闭世界要的是"归一化后仍落在 _md/ 之内"，纯前缀串检查会被 _md/../ 穿越绕过
-        # （_check_anchors 走文件系统解析、能穿到 _md/ 外，前缀串却只看开头骗得过）。
-        # normpath 收敛 . / .. 后，残留的 .. 只会出现在开头，故判首段是否 _md 即已
-        # 封死穿越；顺带给 ./_md/ 这类无害写法摘掉旧前缀检查误报的帽子。
-        if _posix(os.path.normpath(rel)).split("/")[0] != "_md":
-            violations.append(
-                f"[闭世界] {where}\n          锚点指向本案 _md/ 之外: {rel}")
+    violations, _cited, total = _check_anchors(root, [(root / where, where, text)])
     return total, violations
 
 
-def _has_substantive_prose(text: str) -> bool:
-    """存在 callout(`>`)/标题(`#`)/空行之外的实质内容行？（前导 frontmatter 跳过）"""
+_GENERIC_HEADINGS = {
+    "回答", "结论", "本案结论", "摘要", "案件摘要", "概览", "案件概况",
+    "事实", "案件事实", "事实依据", "证据", "证据依据", "依据", "说明",
+    "分析", "法律分析", "检索结果", "材料情况", "付款情况", "争议焦点",
+    "时间线", "案件主体", "法律关系", "风险", "风险提示", "建议", "待核实事项",
+    "案件索引", "案件 wiki 索引",
+}
+
+
+def _is_structural_heading(heading: str) -> bool:
+    """Allow only known section labels, never suffix-guessed factual claims."""
+    return heading in _GENERIC_HEADINGS
+
+
+def _is_table_separator(line: str) -> bool:
+    return bool(re.fullmatch(r"\|?[\s:|-]+\|?", line))
+
+
+def _is_navigation_only(line: str) -> bool:
+    """Recognize relationship-only wikilink rows without treating labels as facts."""
+    links = list(WIKILINK_RE.finditer(line))
+    if not links or any("|" in match.group(1) for match in links):
+        return False
+    remainder = WIKILINK_RE.sub("", line)
+    remainder = re.sub(r"^[\-*+]\s*", "", remainder).strip(" \t，,。；;：:")
+    return remainder in {
+        "", "见", "参见", "另见", "主体", "相关主体", "相关页面", "相关法律事实", "关系",
+    }
+
+
+def _anchor_tail_is_structural(line: str) -> bool:
+    """An anchored claim may only be followed by its marker or Markdown punctuation."""
+    matches = list(ANCHOR_RE.finditer(line))
+    if not matches:
+        return False
+    tail = line[matches[-1].end():]
+    tail = re.sub(r"^[ \t]*（未核验）", "", tail, count=1)
+    return bool(re.fullmatch(r"[ \t，,。；;：:|]*", tail))
+
+
+def _unanchored_factual_lines(
+    text: str, *, allowed_title_heading: str | None = None, allow_navigation: bool = False,
+) -> list[tuple[int, str]]:
+    """找出未锚定且未明确标为分析的实质行。
+
+    旧实现只在**整篇零锚点**时拦截，导致“一句合法锚点 + 任意多句裸事实”
+    通过；还把任意 ``>`` 引用块都误当成分析。现在只豁免明确写成
+    ``> [!note] 分析`` 的连续 callout，其他事实行逐行要求锚点。
+    """
     lines = text.splitlines()
+    start = 0
     if lines and lines[0].strip() == "---":
         for i in range(1, len(lines)):
             if lines[i].strip() == "---":
-                lines = lines[i + 1:]
+                start = i + 1
                 break
-    for line in lines:
+    violations: list[tuple[int, str]] = []
+    in_analysis = False
+    title_seen = False
+    content_lines = lines[start:]
+    for offset, line in enumerate(content_lines):
+        idx = start + offset + 1
         s = line.strip()
-        if s and not s.startswith(">") and not s.startswith("#"):
-            return True
-    return False
+        if s.startswith("```"):
+            continue
+        if not s or re.fullmatch(r"[-*_]{3,}", s):
+            continue
+        if re.match(r"^>\s*\[!note\]\s*分析(?:（非本案证据）)?\s*$", s):
+            in_analysis = True
+            continue
+        if s.startswith(">"):
+            if in_analysis:
+                continue
+            s = s.lstrip("> ").strip()
+        else:
+            in_analysis = False
+        if not s or _is_table_separator(s):
+            continue
+        # A verified arithmetic assertion is derived mechanically rather than
+        # quoted from evidence. Malformed/mismatched checks are reported by
+        # _check_closures and therefore are not silently accepted here.
+        if s.startswith("[!check]"):
+            continue
+        # Obsidian callout headers label the following content; they do not make
+        # that content evidence. Only the marker row itself is structural.
+        if re.fullmatch(
+            r"(?:\[!warning\]\s*⚠?\s*冲突|\[!caution\]\s*含未核验来源)", s,
+        ):
+            continue
+        if s.startswith("#"):
+            heading = s.lstrip("# ").strip()
+            if not title_seen and heading == allowed_title_heading:
+                title_seen = True
+                continue
+            title_seen = True
+            if _is_structural_heading(heading):
+                continue
+        # A Markdown table's first row is column labels, not a factual row.
+        if s.startswith("|") and s.endswith("|") and offset + 1 < len(content_lines):
+            if _is_table_separator(content_lines[offset + 1].strip()):
+                continue
+        if ANCHOR_RE.search(s):
+            if _anchor_tail_is_structural(s):
+                continue
+            violations.append((idx, s))
+            continue
+        if allow_navigation and _is_navigation_only(s):
+            continue
+        # “未找到”只豁免自身这一句；不能给后续裸事实发通行证。
+        if re.fullmatch(rf"{re.escape(NOT_FOUND_PHRASE)}[。！？]?", s):
+            continue
+        violations.append((idx, s))
+    return violations
 
 
 def scan_answer(root: Path, draft: Path) -> tuple[int, list[str]]:
-    """交付闸门三检：锚点全验 + 闭世界 + 整篇兜底。兜底只在零锚点时触发：
-    有实质内容却零锚点、又未明示「未在本案材料中找到」→ 裸答打回。
-    不猜哪句是事实陈述（那是蕴含判官的活），误报率设计为 ~0。"""
+    """交付闸门：锚点全验 + 闭世界 + 逐行裸事实兜底。"""
     text = draft.read_text(encoding="utf-8")
     total, violations = check_answer_anchors(root, text, draft.name)
-    if total == 0 and NOT_FOUND_PHRASE not in text and _has_substantive_prose(text):
+    violations += _check_closures([(draft, draft.name, text)])
+    for lineno, line in _unanchored_factual_lines(text):
         violations.append(
-            f"[裸答] {draft.name}\n          零锚点、未明示「{NOT_FOUND_PHRASE}」，"
-            f"且含分析标注之外的实质内容——事实必须挂锚点")
+            f"[裸答] {draft.name}:{lineno}\n          分析标注之外的实质内容未挂锚点: {line}")
     return total, violations
 
 
@@ -397,9 +600,20 @@ def get_pairs(root: Path) -> list[dict]:
     pairs: list[dict] = []
     for md in sorted(wiki.rglob("*.md")):
         page = md.relative_to(root).as_posix()
+        in_analysis = False
         for line in md.read_text(encoding="utf-8").splitlines():
             s = line.strip()
-            if not s or s.startswith("#") or s.startswith(">"):
+            if re.match(r"^>\s*\[!note\]\s*分析", s):
+                in_analysis = True
+                continue
+            if s.startswith(">"):
+                if in_analysis:
+                    continue
+                line = s.lstrip("> ")
+                s = line.strip()
+            else:
+                in_analysis = False
+            if not s or s.startswith("#"):
                 continue
             matches = list(ANCHOR_RE.finditer(line))
             if not matches:
@@ -442,7 +656,9 @@ def main(argv: list[str]) -> int:
             print("  ✗ " + v)
         for w in warnings:
             print("  ! " + w)
-        return 1 if violations else 0
+        # `check` 是 ingest 完成闸门，不是普通报告器：未处置或无理由跳过
+        # 虽以 warning 展示（方便区分内容错误），仍必须以非零退出阻止“完成”。
+        return 1 if violations or warnings else 0
     if cmd == "answer" and len(argv) == 4:
         root, draft = Path(argv[2]), Path(argv[3])
         if not draft.is_file():

@@ -47,11 +47,11 @@ python <SKILL_DIR>/tools/init_case.py <案件根目录>
 
 ## 第二步：转换（调 makeitdown）
 
-在案件目录执行 `makeitdown 原始资料 -o _md`。转换后读 `_md/report.json`，留意 `warned`/`failed`/`skipped`。失败或跳过的文件**不要凭空补内容**，按缺失处理并告知用户。
+在案件目录执行 `makeitdown 原始资料 -o _md`。新产物 frontmatter 带 `provenance_version: 1`、`source_sha256` 与 `content_sha256`，后续 lint 会 fail-closed 核对原件和转换正文是否变化；旧产物可读但必须重转后才能宣称 ingest 完成。转换后读 `_md/report.json`，留意 `warned`/`failed`/`skipped`。失败或跳过的文件**不要凭空补内容**，按缺失处理并告知用户。
 
 转换后**跑源级对账（确定性收尾）**：`python <SKILL_DIR>/tools/reconcile.py <案件根目录>`。它把 `原始资料/` 与 `_md/report.json` 对齐，把"转换失败 / 跳过、从未进入 `_md/`"的源文件（**lint 覆盖率账本看不见的盲点**，如无 LibreOffice 的 `.doc`）逼出来。退出码非 0 = 有**未处置源级遗漏**：要么装好外部转换器补转，要么在 `wiki/log.md` 登记 skip（路径写 `原始资料/<相对路径>` + 非空原因，格式同 `_md` 级 skip，见 `page-formats.md`）并**显式告知用户**；清零方可继续。
 
-**长任务模式（批量含扫描件 / 走云端 OCR）**：文件多于 ~20 个或含大量扫描件时，转换可能几十分钟。makeitdown 会逐文件把进度打到 stderr（`[k/N] ✓/⚠/✗ 路径`）。**后台运行并落日志**（Claude Code 用 Bash 的后台模式——完成时 harness 会自动唤醒你；其他 agent 用 `nohup makeitdown 原始资料 -o _md > convert.log 2>&1 &` 等价形式），期间可 tail 日志按进度向用户播报；**以进程退出 + `_md/report.json` 出现为完成信号**，完成后读 report.json 向用户汇总 succeeded/warned/failed/skipped 四类计数与需注意项。中断或掉线后加 `--skip-existing` 重跑即断点续传。
+**长任务模式（批量含扫描件 / 走云端 OCR）**：文件多于 ~20 个或含大量扫描件时，转换可能几十分钟。makeitdown 会逐文件把进度打到 stderr（`[k/N] ✓/⚠/✗ 路径`）。**后台运行并落日志**，期间可 tail 日志按进度向用户播报；**以进程退出 + `_md/report.json` 出现为完成信号**，完成后读 report.json 汇总。中断或掉线后加 `--skip-existing` 重跑；它会同时核对 mtime 与原件 SHA-256，不会因复制时间戳而静默跳过已变化原件。
 
 ## 第二步半：索引 `_md/` → `.rag/`（确定性，可选可降级）
 
@@ -74,7 +74,7 @@ python <SKILL_DIR>/tools/rag.py index <案件根目录>
 5. 判定/更新法律关系 → `wiki/法律关系/<关系名>.md`。
 6. 把事实按时序并入 `wiki/时间线/总览.md`。
 7. 维护交叉引用，更新 `index.md`，向 `log.md` 追加 `## [YYYY-MM-DD] ingest | <来源文件名>`。
-8. **确定性校验（lint）**：`python <SKILL_DIR>/lint/lint.py check <案件根目录>`，修到 **0 违规**。
+8. **确定性校验（lint）**：`python <SKILL_DIR>/lint/lint.py check <案件根目录>`，修到**退出码 0**；违规、未处置与无理由 skip 都会返回非零。
 9. **蕴含校验（换实例判官）**：抽取 claim↔引文 → 派全新子代理三分判 → 有界修复 ≤3 轮 → 仍判不过的显著上报用户。
 
 **范围纪律**：默认目标就是上面的"每个 `.md`"。允许分批 / 先做案件主干，但必须：

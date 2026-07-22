@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """lint 回归测试：锁住"归一化只消格式噪声、绝不放过真错"，覆盖 check 五类与 extract。"""
 import sys
+import hashlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -10,6 +11,28 @@ from lint import scan_case, get_pairs, scan_answer, _load_skips  # noqa: E402
 def _write(p: Path, text: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text, encoding="utf-8")
+
+
+def _write_versioned_source(
+    root: Path, rel: str, body: str, *, quality: str | None = None,
+) -> None:
+    """Write the smallest valid makeitdown-style evidence fixture."""
+    raw_rel = Path(rel).relative_to("_md").with_suffix(".txt")
+    raw = root / "原始资料" / raw_rel
+    _write(raw, body)
+    source_hash = hashlib.sha256(raw.read_bytes()).hexdigest()
+    content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    _write(
+        root / rel,
+        "---\n"
+        "provenance_version: 1\n"
+        f"source: {raw_rel.as_posix()}\n"
+        f"source_sha256: {source_hash}\n"
+        f"content_sha256: {content_hash}\n"
+        f"{f'quality: {quality}\n' if quality else ''}"
+        "---\n\n"
+        f"{body}",
+    )
 
 
 def _anchor_case(tmp_path: Path, source: str, snippet: str, rel: str = "_md/a.md") -> Path:
@@ -52,6 +75,117 @@ def test_missing_source_file_is_flagged(tmp_path):
     assert len(viol) == 1
 
 
+def test_wiki_anchor_outside_md_is_flagged_closed_world(tmp_path):
+    _write(tmp_path / "outside.md", "不属于本案来源层")
+    _write(tmp_path / "wiki" / "p.md",
+           "- 事实 〔来源: outside.md：「不属于本案来源层」〕\n")
+    _, viol, *_ = scan_case(tmp_path)
+    assert len(viol) == 1 and "闭世界" in viol[0]
+
+
+def test_wiki_anchor_traversal_is_flagged_closed_world(tmp_path):
+    _write(tmp_path / "wiki" / "outside.md", "# outside")
+    _write(tmp_path / "wiki" / "p.md",
+           "- 事实 〔来源: _md/../wiki/outside.md：「outside」〕\n")
+    _, viol, *_ = scan_case(tmp_path)
+    assert len(viol) == 1 and "闭世界" in viol[0]
+
+
+def test_wiki_bare_fact_is_rejected_even_when_another_anchor_exists(tmp_path):
+    _write(tmp_path / "_md" / "a.md", "甲向乙借款五万元。")
+    _write(
+        tmp_path / "wiki" / "法律事实" / "借款事实.md",
+        "# 借款事实\n\n"
+        "- 甲向乙借款五万元。〔来源: _md/a.md：「甲向乙借款五万元」〕\n"
+        "- 乙已经免除全部债务。\n",
+    )
+
+    _, violations, *_ = scan_case(tmp_path)
+
+    assert len(violations) == 1
+    assert "Wiki 裸事实" in violations[0] and "免除全部债务" in violations[0]
+
+
+def _provenance_case(tmp_path: Path) -> tuple[Path, Path]:
+    source = tmp_path / "原始资料" / "a.txt"
+    _write(source, "原件内容")
+    body = "转换正文"
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    md = tmp_path / "_md" / "a.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_bytes(
+        ("---\nprovenance_version: 1\nsource: a.txt\nsource_type: txt\nengine: markitdown\n"
+         f"source_sha256: {source_hash}\ncontent_sha256: {content_hash}\n---\n\n{body}")
+        .encode("utf-8")
+    )
+    _write(tmp_path / "wiki" / "p.md", "# p\n")
+    return source, md
+
+
+def test_provenance_hashes_pass_when_source_and_body_unchanged(tmp_path):
+    _provenance_case(tmp_path)
+    _, viol, *_ = scan_case(tmp_path)
+    assert viol == []
+
+
+def test_legacy_source_without_provenance_version_blocks_completion(tmp_path):
+    _write(tmp_path / "_md" / "a.md", "旧版正文")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/a.md：「旧版正文」〕\n")
+
+    _, violations, warnings, _ = scan_case(tmp_path)
+
+    assert violations == []
+    assert len(warnings) == 1 and "旧版来源" in warnings[0]
+
+
+def test_versioned_source_missing_hashes_fails_closed(tmp_path):
+    _write(
+        tmp_path / "_md" / "a.md",
+        "---\nprovenance_version: 1\nsource: a.txt\n---\n\n正文",
+    )
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/a.md：「正文」〕\n")
+
+    _, violations, _, _ = scan_case(tmp_path)
+
+    assert len(violations) == 1
+    assert "来源元数据缺失" in violations[0]
+    assert "source_sha256" in violations[0] and "content_sha256" in violations[0]
+
+
+def test_provenance_detects_original_file_change(tmp_path):
+    source, _ = _provenance_case(tmp_path)
+    _write(source, "原件内容已变化")
+    _, viol, *_ = scan_case(tmp_path)
+    assert len(viol) == 1 and "原件哈希不符" in viol[0]
+
+
+def test_provenance_detects_converted_body_change(tmp_path):
+    _, md = _provenance_case(tmp_path)
+    md.write_text(md.read_text(encoding="utf-8") + "篡改", encoding="utf-8")
+    _, viol, *_ = scan_case(tmp_path)
+    assert len(viol) == 1 and "转换正文哈希不符" in viol[0]
+
+
+def test_provenance_preserves_crlf_when_verifying_content_hash(tmp_path):
+    source = tmp_path / "原始资料" / "a.txt"
+    _write(source, "原件内容")
+    body = "第一行\r\n第二行\r\n"
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    md = tmp_path / "_md" / "a.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_bytes(
+        ("---\nprovenance_version: 1\nsource: a.txt\n"
+         f"source_sha256: {source_hash}\ncontent_sha256: {content_hash}\n---\n\n{body}")
+        .encode("utf-8")
+    )
+    _write(tmp_path / "wiki" / "p.md", "# p\n")
+
+    _, viol, *_ = scan_case(tmp_path)
+    assert viol == []
+
+
 def test_nested_quotes_in_snippet_pass(tmp_path):
     # 判决书常引当事人陈述：片段内嵌套「」。锚点闭合符是两字符序列「」〕」，
     # 片段中不跟〕的孤立」不得提前截断——锁住此行为，防未来改正则时退化。
@@ -88,9 +222,51 @@ def test_dead_wikilink_flagged(tmp_path):
 def test_wikilink_resolves_by_alias(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "无锡尚惟.md", "---\naliases: [尚惟]\n---\n# 无锡尚惟\n")
-    _write(tmp_path / "wiki" / "p.md", "见 [[尚惟|尚惟]]\n")
+    _write(tmp_path / "wiki" / "p.md", "见 [[尚惟]]\n")
     _, viol, *_ = scan_case(tmp_path)
     assert viol == []
+
+
+def test_index_bare_fact_is_rejected(tmp_path):
+    _write(tmp_path / "_md" / "a.md", "原文")
+    _write(tmp_path / "wiki" / "index.md", "# 案件 wiki 索引\n\n被告已经清偿全部债务。\n")
+
+    _, violations, *_ = scan_case(tmp_path)
+
+    assert any("Wiki 裸事实" in item and "清偿全部债务" in item for item in violations)
+
+
+def test_wiki_first_heading_cannot_hide_fact_unrelated_to_page_identity(tmp_path):
+    _write(tmp_path / "_md" / "a.md", "原文")
+    _write(tmp_path / "wiki" / "p.md", "# 被告已经清偿全部债务\n")
+
+    _, violations, *_ = scan_case(tmp_path)
+
+    assert any("Wiki 裸事实" in item and "清偿全部债务" in item for item in violations)
+
+
+def test_suspect_source_anchor_requires_unverified_marker(tmp_path):
+    _write_versioned_source(tmp_path, "_md/a.md", "被告自称已经还款。", quality="suspect")
+    _write(
+        tmp_path / "wiki" / "p.md",
+        "- 被告自称已经还款。〔来源: _md/a.md：「被告自称已经还款」〕\n",
+    )
+
+    _, violations, *_ = scan_case(tmp_path)
+
+    assert any("可疑来源未标注" in item for item in violations)
+
+
+def test_suspect_source_anchor_with_unverified_marker_passes(tmp_path):
+    _write_versioned_source(tmp_path, "_md/a.md", "被告自称已经还款。", quality="suspect")
+    _write(
+        tmp_path / "wiki" / "p.md",
+        "- 被告自称已经还款。〔来源: _md/a.md：「被告自称已经还款」〕（未核验）\n",
+    )
+
+    _, violations, *_ = scan_case(tmp_path)
+
+    assert violations == []
 
 
 # ---- ③ 时间线顺序 ----
@@ -104,9 +280,12 @@ def test_timeline_out_of_order_flagged(tmp_path):
 
 
 def test_timeline_in_order_passes(tmp_path):
-    _write(tmp_path / "_md" / "a.md", "x")
+    _write(tmp_path / "_md" / "a.md", "公司设立时甲。2021 年 5 月乙。2022 年 6 月 9 日丙。")
     _write(tmp_path / "wiki" / "时间线" / "总览.md",
-           "# 时间线\n- 公司设立时 甲\n- 2021 年 5 月 乙\n- 2022 年 6 月 9 日 丙\n")
+           "# 时间线\n"
+           "- 公司设立时甲 〔来源: _md/a.md：「公司设立时甲」〕\n"
+           "- 2021 年 5 月乙 〔来源: _md/a.md：「2021 年 5 月乙」〕\n"
+           "- 2022 年 6 月 9 日丙 〔来源: _md/a.md：「2022 年 6 月 9 日丙」〕\n")
     _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
@@ -114,9 +293,11 @@ def test_timeline_in_order_passes(tmp_path):
 def test_timeline_year_only_after_full_date_not_flagged(tmp_path):
     # A year-only entry is ambiguous within its year, so it must NOT be reported
     # as out-of-order after a same-year full date (the old 0-padding falsely did).
-    _write(tmp_path / "_md" / "a.md", "x")
+    _write(tmp_path / "_md" / "a.md", "2021 年 5 月 3 日甲。2021 年乙。")
     _write(tmp_path / "wiki" / "时间线" / "总览.md",
-           "# 时间线\n- 2021 年 5 月 3 日 甲\n- 2021 年 乙\n")
+           "# 时间线\n"
+           "- 2021 年 5 月 3 日甲 〔来源: _md/a.md：「2021 年 5 月 3 日甲」〕\n"
+           "- 2021 年乙 〔来源: _md/a.md：「2021 年乙」〕\n")
     _, viol, *_ = scan_case(tmp_path)
     assert viol == []
 
@@ -146,12 +327,21 @@ def test_closure_mismatch_flagged(tmp_path):
     assert any("勾稽不符" in v for v in viol)
 
 
-def test_closure_ignores_trailing_comment(tmp_path):
+def test_closure_rejects_any_trailing_comment(tmp_path):
     _write(tmp_path / "_md" / "a.md", "x")
     _write(tmp_path / "wiki" / "p.md",
            "> [!check] 1,749,287 + 53,824 == 1,803,111 （增资前+新增=增资后）\n")
     _, viol, *_ = scan_case(tmp_path)
-    assert viol == []
+    assert any("勾稽无法解析" in item for item in viol)
+
+
+def test_closure_rejects_trailing_bare_fact(tmp_path):
+    _write(tmp_path / "_md" / "a.md", "x")
+    _write(tmp_path / "wiki" / "p.md", "> [!check] 1 + 1 == 2 被告欠款五万元\n")
+
+    _, violations, *_ = scan_case(tmp_path)
+
+    assert any("勾稽无法解析" in item for item in violations)
 
 
 # ---- ⑤ 覆盖率：log.md skip 条目解析 ----
@@ -208,8 +398,8 @@ def test_load_skips_halfwidth_colon_accepted(tmp_path):
 
 def _coverage_case(tmp_path: Path) -> Path:
     """最小覆盖率场景：cited.md 被引用，draft.md 未处置。"""
-    _write(tmp_path / "_md" / "cited.md", "甲乙")
-    _write(tmp_path / "_md" / "draft.md", "草稿")
+    _write_versioned_source(tmp_path, "_md/cited.md", "甲乙")
+    _write_versioned_source(tmp_path, "_md/draft.md", "草稿")
     _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
     return tmp_path
 
@@ -231,8 +421,8 @@ def test_registered_skip_silences_warning(tmp_path):
 
 
 def test_skip_without_reason_warns(tmp_path):
-    _write(tmp_path / "_md" / "draft.md", "草稿")
-    _write(tmp_path / "wiki" / "p.md", "占位页\n")
+    _write_versioned_source(tmp_path, "_md/draft.md", "草稿")
+    _write(tmp_path / "wiki" / "p.md", "# p\n")
     _write(tmp_path / "wiki" / "log.md", "## [2026-07-12] skip | _md/draft.md\n")
     _, viol, warn, cov = scan_case(tmp_path)
     assert viol == []
@@ -242,7 +432,7 @@ def test_skip_without_reason_warns(tmp_path):
 
 def test_cited_wins_over_registration(tmp_path):
     # 已引用文件即使被登记跳过（且无原因）也归"已引用"，零警告——引用优先，登记冗余无害。
-    _write(tmp_path / "_md" / "cited.md", "甲乙")
+    _write_versioned_source(tmp_path, "_md/cited.md", "甲乙")
     _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/cited.md：「甲乙」〕\n")
     _write(tmp_path / "wiki" / "log.md", "## [2026-07-12] skip | _md/cited.md\n")
     _, viol, warn, cov = scan_case(tmp_path)
@@ -250,12 +440,23 @@ def test_cited_wins_over_registration(tmp_path):
     assert cov == {"total": 1, "cited": 1, "skipped": 0, "unresolved": 0}
 
 
+def test_coverage_uses_canonical_path_for_dot_prefixed_anchor(tmp_path):
+    _write_versioned_source(tmp_path, "_md/a.md", "原文")
+    _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: ./_md/a.md：「原文」〕\n")
+
+    _, violations, warnings, stats = scan_case(tmp_path)
+
+    assert violations == []
+    assert warnings == []
+    assert stats == {"total": 1, "cited": 1, "skipped": 0, "unresolved": 0}
+
+
 def test_check_cli_prints_coverage_summary(tmp_path, capsys):
     from lint import CASE_ANCHOR_SENTINEL, main
     _coverage_case(tmp_path)
     for name in ("AGENTS.md", "CLAUDE.md"):  # 闭世界锚点在场，隔离出"仅覆盖率警告"
         _write(tmp_path / name, f"# 案件库\n{CASE_ANCHOR_SENTINEL}\n")
-    assert main(["lint.py", "check", str(tmp_path)]) == 0  # 仅覆盖率警告不影响退出码
+    assert main(["lint.py", "check", str(tmp_path)]) == 1  # 未处置会阻止宣称 ingest 完成
     out = capsys.readouterr().out
     assert "覆盖率：2 源文件 | 已引用 1 | 登记跳过 0 | 未处置 1" in out
     assert "[未处置] _md/draft.md" in out
@@ -293,7 +494,7 @@ def test_missing_case_anchor_fails_check_cli(tmp_path):
 
 def test_stale_skip_entry_silently_ignored(tmp_path):
     # 登记路径在 _md/ 中不存在：不发警告、不进统计（真正漏网的文件仍会以未处置暴露）。
-    _write(tmp_path / "_md" / "a.md", "甲乙")
+    _write_versioned_source(tmp_path, "_md/a.md", "甲乙")
     _write(tmp_path / "wiki" / "p.md", "- 事实 〔来源: _md/a.md：「甲乙」〕\n")
     _write(tmp_path / "wiki" / "log.md",
            "## [2026-07-12] skip | _md/早已删除.md\n- 原因：x\n")
@@ -322,6 +523,13 @@ def test_extract_skips_heading_and_analysis(tmp_path):
     assert len(pairs) == 1 and pairs[0]["quote"] == "该抽"
 
 
+def test_extract_does_not_skip_plain_blockquote(tmp_path):
+    _write(tmp_path / "wiki" / "p.md",
+           "> 普通引用中的事实 〔来源: _md/a.md：「应抽取」〕\n")
+    pairs = get_pairs(tmp_path)
+    assert len(pairs) == 1 and pairs[0]["quote"] == "应抽取"
+
+
 def test_extract_per_anchor_subclaim(tmp_path):
     _write(tmp_path / "wiki" / "p.md",
            "- 增资前 X 〔来源: _md/a.md：「X」〕；增资后 Y 〔来源: _md/b.md：「Y」〕\n")
@@ -345,6 +553,76 @@ def test_answer_valid_anchor_passes(tmp_path):
         tmp_path, "欠款本金为 5 万元。〔来源: _md/借条.md：「欠款金额为人民币50,000元」〕\n")
     total, viol = scan_answer(root, draft)
     assert total == 1 and viol == []
+
+
+def test_answer_one_anchor_does_not_exempt_other_bare_fact(tmp_path):
+    root, draft = _draft_case(
+        tmp_path,
+        "欠款本金为 5 万元。〔来源: _md/借条.md：「欠款金额为人民币50,000元」〕\n"
+        "被告还应承担全部律师费。\n",
+    )
+    total, viol = scan_answer(root, draft)
+    assert total == 1
+    assert len(viol) == 1 and "律师费" in viol[0]
+
+
+def test_answer_anchor_does_not_exempt_trailing_fact_on_same_line(tmp_path):
+    root, draft = _draft_case(
+        tmp_path,
+        "欠款本金为 5 万元。〔来源: _md/借条.md：「欠款金额为人民币50,000元」〕"
+        "，原告已经免除全部债务。\n",
+    )
+
+    total, violations = scan_answer(root, draft)
+
+    assert total == 1
+    assert len(violations) == 1 and "免除全部债务" in violations[0]
+
+
+def test_answer_structural_heading_and_table_header_do_not_false_positive(tmp_path):
+    root, draft = _draft_case(
+        tmp_path,
+        "## 付款情况\n"
+        "| 项目 | 金额 |\n"
+        "|---|---|\n"
+        "| 本金 | 5 万元 〔来源: _md/借条.md：「欠款金额为人民币50,000元」〕 |\n",
+    )
+    _, viol = scan_answer(root, draft)
+    assert viol == []
+
+
+def test_answer_factual_claim_cannot_hide_in_heading(tmp_path):
+    root, draft = _draft_case(tmp_path, "## 被告已支付 5 万元\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "裸答" in viol[0]
+
+
+def test_answer_factual_claim_without_digits_cannot_hide_in_heading(tmp_path):
+    root, draft = _draft_case(tmp_path, "## 被告承认债务事实\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "裸答" in viol[0]
+
+
+def test_answer_fact_cannot_hide_in_code_fence(tmp_path):
+    root, draft = _draft_case(tmp_path, "```text\n被告承认全部债务。\n```\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "承认全部债务" in viol[0]
+
+
+def test_answer_fact_cannot_hide_in_check_callout(tmp_path):
+    root, draft = _draft_case(tmp_path, "> [!check] 被告欠款五万元\n")
+
+    _, violations = scan_answer(root, draft)
+
+    assert any("勾稽无法解析" in item for item in violations)
+
+
+def test_answer_fact_cannot_hide_in_wikilink_display(tmp_path):
+    root, draft = _draft_case(tmp_path, "[[任意|被告已清偿全部债务]]\n")
+
+    _, violations = scan_answer(root, draft)
+
+    assert any("裸答" in item and "清偿全部债务" in item for item in violations)
 
 
 def test_answer_wrong_snippet_flagged(tmp_path):
@@ -384,8 +662,49 @@ def test_answer_bare_prose_flagged(tmp_path):
     assert len(viol) == 1 and "裸答" in viol[0]
 
 
+def test_answer_plain_blockquote_is_not_analysis_and_is_flagged(tmp_path):
+    root, draft = _draft_case(tmp_path, "> 被告应偿还 5 万元。\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "裸答" in viol[0]
+
+
+def test_answer_not_found_phrase_does_not_exempt_following_fact(tmp_path):
+    root, draft = _draft_case(
+        tmp_path, "未在本案材料中找到。\n但被告仍应偿还 5 万元。\n")
+    _, viol = scan_answer(root, draft)
+    assert len(viol) == 1 and "偿还" in viol[0]
+
+
+def test_answer_not_found_prefix_does_not_exempt_same_line_conclusion(tmp_path):
+    root, draft = _draft_case(
+        tmp_path, "未在本案材料中找到相关约定，因此被告无须还款。\n"
+    )
+
+    _, violations = scan_answer(root, draft)
+
+    assert len(violations) == 1 and "裸答" in violations[0]
+
+
+def test_answer_not_found_prefix_without_punctuation_cannot_hide_conclusion(tmp_path):
+    root, draft = _draft_case(
+        tmp_path, "未在本案材料中找到相关约定故应认定被告无需还款。\n"
+    )
+
+    _, violations = scan_answer(root, draft)
+
+    assert len(violations) == 1 and "裸答" in violations[0]
+
+
+def test_answer_fact_cannot_hide_in_warning_title(tmp_path):
+    root, draft = _draft_case(tmp_path, "> [!warning] 被告已清偿全部债务\n")
+
+    _, violations = scan_answer(root, draft)
+
+    assert len(violations) == 1 and "裸答" in violations[0]
+
+
 def test_answer_not_found_phrase_passes(tmp_path):
-    root, draft = _draft_case(tmp_path, "未在本案材料中找到相关约定。\n")
+    root, draft = _draft_case(tmp_path, "未在本案材料中找到。\n")
     total, viol = scan_answer(root, draft)
     assert total == 0 and viol == []
 
@@ -400,7 +719,7 @@ def test_answer_pure_analysis_passes(tmp_path):
 
 def test_answer_cli_exit_codes(tmp_path):
     from lint import main
-    root, draft = _draft_case(tmp_path, "未在本案材料中找到相关约定。\n")
+    root, draft = _draft_case(tmp_path, "未在本案材料中找到。\n")
     assert main(["lint.py", "answer", str(root), str(draft)]) == 0
     bad = tmp_path / "bad.md"
     _write(bad, "裸答无锚点。\n")
@@ -412,7 +731,7 @@ def test_answer_undecodable_draft_returns_2_not_crash(tmp_path):
     # 无法解码的草稿应是"读取失败"（退出码 2），而不是让 UnicodeDecodeError
     # 冒出去、被协议误读成"违规打回"（退出码 1）。
     from lint import main
-    root, _draft = _draft_case(tmp_path, "未在本案材料中找到相关约定。\n")
+    root, _draft = _draft_case(tmp_path, "未在本案材料中找到。\n")
     bad = tmp_path / "bad_encoding.md"
     bad.write_bytes(b"\xff\xfe\x00bad")
     assert main(["lint.py", "answer", str(root), str(bad)]) == 2

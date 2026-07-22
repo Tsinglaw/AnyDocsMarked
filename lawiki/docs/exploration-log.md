@@ -1,5 +1,7 @@
 # lawiki 探索日志
 
+> 历史过程记录：本文保留当时的文件名、方案与判断，不作为当前运行契约。现行要求以仓库 `docs/product-requirements.md`、ADR、README、SKILL.md 与测试为准。
+
 按时间记录设计探索与关键决策（每一步为什么这么定）。最新在下。设计正文见 `docs/superpowers/specs/`，本文件是"过程与理由"。
 
 ## 2026-06-16 起：从 makeitdown 到 lawiki

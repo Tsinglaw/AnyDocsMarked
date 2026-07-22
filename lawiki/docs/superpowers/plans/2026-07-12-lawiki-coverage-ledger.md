@@ -1,5 +1,7 @@
 # lawiki 覆盖率三态账本 Implementation Plan
 
+> **状态：历史实施计划，已完成。** 其中“覆盖率保持 soft、不影响退出码”的约束已被 2026-07-21 可信边界设计取代；现行 `lint check` 会在完整性 warning 未清零时返回非零。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 lint 覆盖率从两态（引用/未引用）升级为三态（已引用/登记跳过/未处置），跳过决策以 `wiki/log.md` skip 条目显式留痕，警告可收敛到 0，并在 SKILL.md 中钉死"ingest 完成 = 0 违规 且 未处置 = 0"。

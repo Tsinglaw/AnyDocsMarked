@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """build_bundle 回归测试（stdlib unittest，零依赖）。"""
 import sys
+import hashlib
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -33,6 +35,28 @@ class NameTests(unittest.TestCase):
         self.assertEqual(build_bundle._zip_name("1.1.2", True),
                          "anydocsmarked-v1.1.2-offline.zip")
 
+    def test_component_version_mismatch_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "版本不一致"):
+            build_bundle._validate_component_versions(
+                "1.7.0", {"makeitdown": "1.7.0", "rag-retriever": "1.6.0"}
+            )
+
+    def test_matching_component_versions_pass(self):
+        build_bundle._validate_component_versions(
+            "1.7.0", {"makeitdown": "1.7.0", "rag-retriever": "1.7.0"}
+        )
+
+    def test_declared_and_runtime_versions_are_all_release_aligned(self):
+        self.assertEqual(
+            build_bundle._component_versions(),
+            {
+                "makeitdown": "1.7.0",
+                "makeitdown.__version__": "1.7.0",
+                "rag-retriever": "1.7.0",
+                "rag-retriever.__version__": "1.7.0",
+            },
+        )
+
 
 class VendoredCheckTests(unittest.TestCase):
     def test_absent(self):
@@ -47,6 +71,29 @@ class VendoredCheckTests(unittest.TestCase):
             m.mkdir(parents=True)
             (m / "model.onnx").write_bytes(b"x")
             self.assertTrue(build_bundle._has_vendored_models(Path(d)))
+
+
+class ChecksumTests(unittest.TestCase):
+    def test_checksum_manifest_covers_all_bundles(self):
+        with tempfile.TemporaryDirectory() as d:
+            dist = Path(d)
+            first = dist / "anydocsmarked-v1.7.0.zip"
+            second = dist / "anydocsmarked-v1.7.0-offline.zip"
+            stale = dist / "anydocsmarked-v1.6.0.zip"
+            first.write_bytes(b"source")
+            second.write_bytes(b"offline")
+            stale.write_bytes(b"stale")
+
+            manifest = build_bundle._write_checksums(dist, "1.7.0")
+
+            lines = manifest.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(
+                lines,
+                [
+                    f"{hashlib.sha256(second.read_bytes()).hexdigest()}  {second.name}",
+                    f"{hashlib.sha256(first.read_bytes()).hexdigest()}  {first.name}",
+                ],
+            )
 
 
 if __name__ == "__main__":
