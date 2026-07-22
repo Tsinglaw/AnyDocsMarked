@@ -10,6 +10,15 @@ __pycache__/
 # Virtualenv / uv
 .venv/
 venv/
+.uv-cache/
+.uv-python/
+.uv-tools/
+.uv-tools-bin/
+.test-envs/
+.test-tmp/
+.test-verify-*/
+.test-release-smoke/
+.superpowers/
 # uv.lock is committed (not ignored): it pins exact dependency versions so CI
 # and `uv run`/`uv sync` builds are reproducible for these distributable tools.
 

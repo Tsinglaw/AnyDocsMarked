@@ -11,9 +11,9 @@ on:
 # Windows is in every matrix because it is the primary user platform (lawyers'
 # desktops): COM conversion, GBK console encoding, and path-separator handling
 # only break there — ubuntu-only CI would never see those bugs.
-# Coverage rides the ubuntu leg of each matrix (report-only, no threshold) so
-# every suite has exactly one canonical pytest command — a separate coverage
-# job would duplicate the runs and drift out of sync with what CI gates.
+# Coverage rides the ubuntu leg of each matrix with an 80% branch-aware floor.
+# Current production-only coverage is 84-86%; the floor prevents silent erosion
+# while leaving room for platform-only COM/OCR/MCP process branches.
 jobs:
   lawiki:
     # Zero-dependency stdlib core: no install needed beyond pytest itself.
@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest pytest-cov
-      - run: python -m pytest skill/lawiki scripts test_install.py -q ${{ matrix.os == 'ubuntu-latest' && '--cov=skill/lawiki --cov-report=term-missing' || '' }}
+      - run: python -m pytest skill/lawiki scripts test_install.py -q ${{ matrix.os == 'ubuntu-latest' && '--cov=skill/lawiki/lint --cov=skill/lawiki/tools --cov-config=../.coveragerc --cov-report=term-missing --cov-fail-under=80' || '' }}
         working-directory: lawiki
 
   makeitdown:
@@ -40,7 +40,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       # 3.12 satisfies requires-python (>=3.11,<3.13). The `dev` extra pulls
       # pytest; `local` (paddle) is intentionally omitted — OCR tests mock it.
-      - run: uv run --python 3.12 --extra dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=makeitdown --cov-report=term-missing' || '' }}
+      - run: uv run --python 3.12 --extra dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=makeitdown --cov-config=../.coveragerc --cov-report=term-missing --cov-fail-under=80' || '' }}
         working-directory: makeitdown
 
   rag-retriever:
@@ -53,8 +53,21 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       # The `dev` dependency-group provides pytest; a FakeEmbedder in conftest
       # keeps the suite from downloading any embedding model.
-      - run: uv run --python 3.12 --group dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=rag_retriever --cov-report=term-missing' || '' }}
+      - run: uv run --python 3.12 --group dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=rag_retriever --cov-config=../.coveragerc --cov-report=term-missing --cov-fail-under=80' || '' }}
         working-directory: rag-retriever
+
+  product-acceptance:
+    # Real raw -> Markdown -> LanceDB/BM25 -> cited Wiki -> answer-gate path.
+    # Only the heavyweight embedding boundary is deterministic/fake; all product
+    # storage, conversion, retrieval and lint code is exercised together.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --python 3.12 --with-editable ./makeitdown --with-editable ./rag-retriever --with pytest python -m pytest tests -q
 
   # Style gate: pyflakes-level errors only (undefined names, unused imports,
   # syntax). Deliberately not a full style ruleset — the repo has no formatter
