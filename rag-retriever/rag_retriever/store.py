@@ -6,7 +6,10 @@ Re-indexing a file deletes its old chunks first so updates stay clean.
 
 from __future__ import annotations
 
+import inspect
 import json
+import os
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -42,8 +45,26 @@ def _read_json(path: Path, default):
 
 
 def _write_json(path: Path, data, *, indent: int | None = None) -> None:
-    """Write `data` as JSON to `path` (UTF-8, non-ASCII preserved)."""
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=indent), "utf-8")
+    """Atomically write JSON so a crash never leaves a truncated sidecar."""
+    payload = json.dumps(data, ensure_ascii=False, indent=indent)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _file_stamp(path: Path) -> tuple[int, int, int] | None:
+    try:
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+    except OSError:
+        return None
 
 
 def _parse_meta(row: dict) -> dict:
@@ -71,6 +92,7 @@ class VectorStore:
         # rows; empty/absent for indexes built without parent context.
         self._parents_path = data_dir / "parents.json"
         self._parents: dict[str, list[str]] = _read_json(self._parents_path, {})
+        self._parents_stamp = _file_stamp(self._parents_path)
         # One-shot guard so search_text self-heals a missing FTS index at most once
         # (e.g. rows added via a direct add() that bypassed the batch rebuild_fts()).
         self._fts_heal_attempted = False
@@ -80,14 +102,24 @@ class VectorStore:
 
     def _save_parents(self) -> None:
         _write_json(self._parents_path, self._parents)
+        self._parents_stamp = _file_stamp(self._parents_path)
+
+    def _refresh_parents(self) -> None:
+        """Reload a sidecar replaced by another CLI/MCP process."""
+        current = _file_stamp(self._parents_path)
+        if current != self._parents_stamp:
+            self._parents = _read_json(self._parents_path, {})
+            self._parents_stamp = current
 
     def set_parents(self, source: str, parents: list[str]) -> None:
         """Store (overwrite) the parent blocks for a source, indexed by parent_ord."""
+        self._refresh_parents()
         self._parents[source] = list(parents)
         self._save_parents()
 
     def get_parent(self, source: str, ord: int | None) -> str | None:
         """Parent block text for (source, parent_ord); None if absent/out of range."""
+        self._refresh_parents()
         if ord is None:
             return None
         blocks = self._parents.get(source)
@@ -117,6 +149,7 @@ class VectorStore:
             tbl.delete(f"source = '{_escape(source)}'")
         if self._manifest.pop(source, None) is not None:
             self._save_manifest()
+        self._refresh_parents()
         if self._parents.pop(source, None) is not None:
             self._save_parents()
 
@@ -176,7 +209,22 @@ class VectorStore:
         if tbl is None or "text_tokens" not in tbl.schema.names:
             return
         try:
-            tbl.create_fts_index("text_tokens", replace=True)
+            # LanceDB's unified API replaced create_fts_index in newer releases,
+            # while 0.33's synchronous LanceTable still exposes only the legacy
+            # method. Prefer the unified public API when the installed version
+            # supports it and retain a bounded compatibility path for the lock.
+            from lancedb.index import FTS
+
+            options = {
+                "base_tokenizer": "whitespace",
+                "stem": False,
+                "remove_stop_words": False,
+                "ascii_folding": False,
+            }
+            if "config" in inspect.signature(tbl.create_index).parameters:
+                tbl.create_index("text_tokens", config=FTS(**options), replace=True)
+            else:
+                tbl.create_fts_index("text_tokens", replace=True, **options)
         except Exception:
             # FTS is an optimization; never fail because of it.
             pass

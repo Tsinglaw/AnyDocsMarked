@@ -8,6 +8,8 @@ The embedding backend is chosen at runtime via RAG_EMBED_BACKEND.
 from __future__ import annotations
 
 import os
+import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,6 +88,8 @@ class Config:
     # Optional path to a locally vendored copy of the local model's ONNX files.
     # Empty = auto-detect the release-bundled copy (or download if absent).
     embed_model_path: str = ""
+    # Separate acknowledgement for any embedding endpoint that sends case text off-device.
+    cloud_consent: bool = False
 
     # frontmatter fields to carry through as per-hit metadata (domain-agnostic).
     # Empty = none. The retriever does not interpret these; callers do.
@@ -105,7 +109,7 @@ class Config:
     rrf_k: int = 60
     hybrid_candidates: int = 50
 
-    # optional cross-encoder rerank: "none" (default) | "local" | "cloud"
+    # optional cross-encoder rerank: "none" (default) | "local"
     rerank: str = "none"
     # cross-encoder model used when rerank == "local" (only loaded then).
     # Multilingual (same family as bge-m3 embeddings) so Chinese legal terms
@@ -133,13 +137,36 @@ class Config:
         model = _env("RAG_EMBED_MODEL", _DEFAULT_MODEL[backend])
         data_dir = Path(_env("RAG_DATA_DIR", str(Path.home() / ".rag-retriever" / "data")))
         chunk_tokens = _env_int("RAG_CHUNK_TOKENS", _DEFAULT_CHUNK_TOKENS[backend])
+        parent_context = _env_bool("RAG_PARENT_CONTEXT", False)
         # A parent must be materially larger than a child, else small-to-big
-        # degenerates into single-level chunking.
-        parent_tokens = max(_env_int("RAG_PARENT_TOKENS", 1600), chunk_tokens * 2)
+        # degenerates into single-level chunking. Do not rewrite a dormant setting
+        # while the feature is off; that made diagnostics disagree with the env.
+        parent_tokens = _env_int("RAG_PARENT_TOKENS", 1600)
+        if parent_context and parent_tokens < chunk_tokens * 2:
+            adjusted = chunk_tokens * 2
+            warnings.warn(
+                f"RAG_PARENT_TOKENS={parent_tokens} is too small; using {adjusted} "
+                f"(2 × RAG_CHUNK_TOKENS)", RuntimeWarning, stacklevel=2,
+            )
+            parent_tokens = adjusted
+        min_score = _env_float("RAG_MIN_SCORE", 0.0)
+        if not math.isfinite(min_score) or not 0.0 <= min_score <= 1.0:
+            warnings.warn(
+                f"RAG_MIN_SCORE must be finite and within [0, 1]; got {min_score!r}. "
+                "Falling back to 0 (disabled).",
+                RuntimeWarning, stacklevel=2,
+            )
+            min_score = 0.0
+        rerank = _env("RAG_RERANK", "none").lower()
+        if rerank not in {"none", "local"}:
+            raise ValueError(
+                f"RAG_RERANK must be one of ['none', 'local'], got '{rerank}'"
+            )
         return cls(
             embed_backend=backend,
             embed_model=model,
             embed_model_path=_env("RAG_EMBED_MODEL_PATH", ""),
+            cloud_consent=_env_bool("RAG_CLOUD_CONSENT", False),
             ollama_url=_env("RAG_OLLAMA_URL", "http://localhost:11434"),
             openai_base_url=_env("RAG_OPENAI_BASE_URL", "https://api.siliconflow.cn/v1"),
             openai_api_key=_env("RAG_OPENAI_API_KEY", ""),
@@ -152,9 +179,9 @@ class Config:
             hybrid=_env_bool("RAG_HYBRID", True),
             rrf_k=_env_int("RAG_RRF_K", 60),
             hybrid_candidates=_env_int("RAG_HYBRID_CANDIDATES", 50),
-            rerank=_env("RAG_RERANK", "none").lower(),
+            rerank=rerank,
             rerank_model=_env("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
-            min_score=_env_float("RAG_MIN_SCORE", 0.0),
-            parent_context=_env_bool("RAG_PARENT_CONTEXT", False),
+            min_score=min_score,
+            parent_context=parent_context,
             parent_tokens=parent_tokens,
         )

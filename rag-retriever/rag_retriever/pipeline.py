@@ -202,15 +202,15 @@ class Retriever:
     def _attach_parents(self, hits: list[dict]) -> list[dict]:
         """Attach each hit's enclosing parent block (small-to-big) as `parent_text`.
 
-        Only when parent context is enabled — off is a no-op so hits keep exactly
-        today's shape (strictly non-breaking for existing consumers). `parent_text`
-        is None for a hit whose index predates parent context (legacy sidecar-less).
+        The result contract is stable: every hit has ``parent_text``. It is ``None``
+        when parent context is disabled or the index predates the parent sidecar.
         """
-        if not self.cfg.parent_context:
-            return hits
         for h in hits:
-            ord_ = (h.get("metadata") or {}).get("parent_ord")
-            h["parent_text"] = self.store.get_parent(h["source"], ord_)
+            parent = None
+            if self.cfg.parent_context:
+                ord_ = (h.get("metadata") or {}).get("parent_ord")
+                parent = self.store.get_parent(h["source"], ord_)
+            h["parent_text"] = parent
         return hits
 
     def list_sources(self) -> list[dict]:

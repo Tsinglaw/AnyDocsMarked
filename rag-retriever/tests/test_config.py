@@ -7,6 +7,8 @@ be larger. An explicit RAG_CHUNK_TOKENS always wins.
 
 from __future__ import annotations
 
+import pytest
+
 from rag_retriever.config import Config
 
 
@@ -77,8 +79,17 @@ def test_parent_tokens_floored_to_twice_child(monkeypatch):
     # A parent must be materially larger than a child; a too-small value is floored.
     monkeypatch.setenv("RAG_CHUNK_TOKENS", "800")
     monkeypatch.setenv("RAG_PARENT_TOKENS", "500")
+    monkeypatch.setenv("RAG_PARENT_CONTEXT", "1")
     from rag_retriever.config import Config
-    assert Config.load().parent_tokens == 1600  # max(500, 800*2)
+    with pytest.warns(RuntimeWarning, match="RAG_PARENT_TOKENS"):
+        assert Config.load().parent_tokens == 1600  # max(500, 800*2)
+
+
+def test_parent_tokens_not_rewritten_when_feature_off(monkeypatch):
+    monkeypatch.setenv("RAG_CHUNK_TOKENS", "800")
+    monkeypatch.setenv("RAG_PARENT_TOKENS", "500")
+    monkeypatch.setenv("RAG_PARENT_CONTEXT", "0")
+    assert Config.load().parent_tokens == 500
 
 
 def test_min_score_defaults_to_zero(monkeypatch):
@@ -97,3 +108,78 @@ def test_min_score_invalid_value_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("RAG_MIN_SCORE", "not-a-number")
     from rag_retriever.config import Config
     assert Config.load().min_score == 0.0
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-0.1", "1.1"])
+def test_min_score_nonfinite_or_out_of_range_falls_back(monkeypatch, value):
+    monkeypatch.setenv("RAG_MIN_SCORE", value)
+    with pytest.warns(RuntimeWarning, match="RAG_MIN_SCORE"):
+        assert Config.load().min_score == 0.0
+
+
+def test_openai_backend_requires_explicit_cloud_consent(monkeypatch):
+    from rag_retriever.embed import ExternalProcessingConsentRequired, get_embedder
+
+    monkeypatch.setenv("RAG_EMBED_BACKEND", "openai")
+    monkeypatch.setenv("RAG_OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("RAG_CLOUD_CONSENT", raising=False)
+    get_embedder.cache_clear()
+
+    with pytest.raises(ExternalProcessingConsentRequired):
+        get_embedder(Config.load())
+
+
+def test_openai_backend_is_available_after_explicit_cloud_consent(monkeypatch):
+    from rag_retriever.embed import OpenAICompatEmbedder, get_embedder
+
+    monkeypatch.setenv("RAG_EMBED_BACKEND", "openai")
+    monkeypatch.setenv("RAG_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("RAG_CLOUD_CONSENT", "1")
+    get_embedder.cache_clear()
+
+    assert isinstance(get_embedder(Config.load()), OpenAICompatEmbedder)
+
+
+def test_remote_ollama_requires_explicit_cloud_consent(monkeypatch):
+    from rag_retriever.embed import ExternalProcessingConsentRequired, get_embedder
+
+    monkeypatch.setenv("RAG_EMBED_BACKEND", "ollama")
+    monkeypatch.setenv("RAG_OLLAMA_URL", "https://ollama.example.com")
+    monkeypatch.delenv("RAG_CLOUD_CONSENT", raising=False)
+    get_embedder.cache_clear()
+
+    with pytest.raises(ExternalProcessingConsentRequired):
+        get_embedder(Config.load())
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://localhost:11434", "http://127.0.0.2:11434", "http://[::1]:11434"],
+)
+def test_loopback_ollama_does_not_require_cloud_consent(monkeypatch, url):
+    from rag_retriever.embed import OllamaEmbedder, get_embedder
+
+    monkeypatch.setenv("RAG_EMBED_BACKEND", "ollama")
+    monkeypatch.setenv("RAG_OLLAMA_URL", url)
+    monkeypatch.delenv("RAG_CLOUD_CONSENT", raising=False)
+    get_embedder.cache_clear()
+
+    assert isinstance(get_embedder(Config.load()), OllamaEmbedder)
+
+
+def test_remote_ollama_is_available_after_explicit_cloud_consent(monkeypatch):
+    from rag_retriever.embed import OllamaEmbedder, get_embedder
+
+    monkeypatch.setenv("RAG_EMBED_BACKEND", "ollama")
+    monkeypatch.setenv("RAG_OLLAMA_URL", "https://ollama.example.com")
+    monkeypatch.setenv("RAG_CLOUD_CONSENT", "1")
+    get_embedder.cache_clear()
+
+    assert isinstance(get_embedder(Config.load()), OllamaEmbedder)
+
+
+def test_unimplemented_cloud_rerank_is_rejected_by_config(monkeypatch):
+    monkeypatch.setenv("RAG_RERANK", "cloud")
+
+    with pytest.raises(ValueError, match=r"RAG_RERANK.*none.*local"):
+        Config.load()

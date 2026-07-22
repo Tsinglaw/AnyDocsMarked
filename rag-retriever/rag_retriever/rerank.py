@@ -2,7 +2,6 @@
 be loaded. `none` (default) keeps the pipeline zero-model and offline.
 
 - local:  fastembed cross-encoder reranker (in-process, ONNX)
-- cloud:  SiliconFlow/OpenAI-compatible rerank endpoint (text leaves the machine)
 """
 
 from __future__ import annotations
@@ -41,9 +40,4 @@ def get_reranker(cfg: Config) -> Reranker | None:
         return None
     if cfg.rerank == "local":
         return LocalReranker(cfg.rerank_model)
-    if cfg.rerank == "cloud":
-        raise NotImplementedError(
-            "cloud rerank is reserved; configure a SiliconFlow rerank endpoint in a "
-            "follow-up. Use RAG_RERANK=none or local for now."
-        )
-    raise ValueError(f"unknown RAG_RERANK: {cfg.rerank!r} (expected none|local|cloud)")
+    raise ValueError(f"unknown RAG_RERANK: {cfg.rerank!r} (expected none|local)")

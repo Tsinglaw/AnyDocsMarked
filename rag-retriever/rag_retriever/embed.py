@@ -7,14 +7,33 @@ model, or similarity is meaningless — switching models requires re-indexing.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
 from .config import Config
+
+
+class ExternalProcessingConsentRequired(RuntimeError):
+    """Raised before case text is sent to an external embedding endpoint."""
+
+
+def _is_loopback_url(url: str) -> bool:
+    """Return true only when an HTTP endpoint resolves syntactically to loopback."""
+    host = urlsplit(url).hostname
+    if host is None:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 _log = logging.getLogger(__name__)
 
@@ -181,8 +200,18 @@ def get_embedder(cfg: Config) -> Embedder:
     if cfg.embed_backend == "local":
         return LocalEmbedder(cfg.embed_model, cfg.embed_model_path or None)
     if cfg.embed_backend == "ollama":
+        if not _is_loopback_url(cfg.ollama_url) and not cfg.cloud_consent:
+            raise ExternalProcessingConsentRequired(
+                "RAG_OLLAMA_URL is not a loopback endpoint and may send case text off-device. "
+                "Set RAG_CLOUD_CONSENT=1 only after confirming the endpoint and data scope."
+            )
         return OllamaEmbedder(cfg.embed_model, cfg.ollama_url, cfg.embed_batch_size)
     if cfg.embed_backend == "openai":
+        if not cfg.cloud_consent:
+            raise ExternalProcessingConsentRequired(
+                "RAG_EMBED_BACKEND=openai sends case text to an external service. "
+                "Set RAG_CLOUD_CONSENT=1 only after confirming the provider and data scope."
+            )
         return OpenAICompatEmbedder(
             cfg.embed_model, cfg.openai_base_url, cfg.openai_api_key, cfg.embed_batch_size
         )

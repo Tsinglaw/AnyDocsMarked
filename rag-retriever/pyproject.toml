@@ -1,14 +1,14 @@
 [project]
 name = "rag-retriever"
 # Tracks the AnyDocsMarked bundle release tag (vX.Y.Z); bump together when tagging.
-version = "1.6.0"
+version = "1.7.0"
 description = "A lightweight, local-first document retrieval engine that mounts to an agent as an MCP tool. Drop files in; the agent searches and answers with its own LLM."
 readme = "README.md"
 license = { text = "MIT" }
 classifiers = ["License :: OSI Approved :: MIT License"]
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.2.0",            # MCP server (FastMCP)
+    "mcp>=1.28.1",           # MCP server (FastMCP); security floor for CVE-2026-59950
     "lancedb>=0.15.0",       # embedded vector store (no server)
     "jieba>=0.42",           # pure-python Chinese segmentation for BM25 (offline)
     "markitdown[all]>=0.0.1a3",  # file -> markdown extraction (pdf/docx/pptx/xlsx/html/...)
@@ -16,6 +16,7 @@ dependencies = [
     "httpx>=0.27.0",         # ollama / openai-compatible HTTP calls
     "tiktoken>=0.7.0",       # token-based chunking
     "numpy>=1.26",
+    "pillow>=12.3.0",
 ]
 
 [project.scripts]

@@ -42,6 +42,33 @@ def test_text_tokens_column_present_after_add(tmp_path):
     assert s.has_fts() is True
 
 
+def test_rebuild_fts_prefers_lancedb_unified_index_api(tmp_path, monkeypatch):
+    calls = []
+
+    class _Schema:
+        names = ["text_tokens"]
+
+    class _Table:
+        schema = _Schema()
+
+        def create_index(self, column, *, config, replace):
+            calls.append((column, config, replace))
+
+        def create_fts_index(self, *_args, **_kwargs):
+            raise AssertionError("deprecated FTS API should not be used when unified API exists")
+
+    s = VectorStore(tmp_path)
+    monkeypatch.setattr(s, "_table", lambda: _Table())
+
+    s.rebuild_fts()
+
+    assert len(calls) == 1
+    column, config, replace = calls[0]
+    assert column == "text_tokens" and replace is True
+    assert config.base_tokenizer == "whitespace"
+    assert config.stem is False and config.remove_stop_words is False
+
+
 def test_add_into_legacy_table_without_text_tokens(tmp_path):
     import lancedb
 
@@ -112,6 +139,20 @@ def test_parents_roundtrip(tmp_path):
 def test_parents_persist_across_instances(tmp_path):
     VectorStore(tmp_path).set_parents("doc.md", ["P0"])
     assert VectorStore(tmp_path).get_parent("doc.md", 0) == "P0"
+
+
+def test_long_lived_instance_reloads_parents_written_by_another_process(tmp_path):
+    first = VectorStore(tmp_path)
+    second = VectorStore(tmp_path)
+    first.set_parents("doc.md", ["old"])
+    assert second.get_parent("doc.md", 0) == "old"
+    first.set_parents("doc.md", ["new"])
+    assert second.get_parent("doc.md", 0) == "new"
+
+
+def test_json_sidecar_write_leaves_no_temp_files(tmp_path):
+    VectorStore(tmp_path).set_parents("doc.md", ["P0"])
+    assert not list(tmp_path.glob(".parents.json.*.tmp"))
 
 
 def test_delete_source_clears_parents(tmp_path):
