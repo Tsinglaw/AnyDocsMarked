@@ -94,6 +94,7 @@ def test_cli_structure_headings_builds_structurer(monkeypatch, tmp_path):
 
     src = tmp_path / "in"; src.mkdir()
     rc = cli.main([str(src), "--ocr-engine", "local", "--structure-headings",
+                   "--cloud-consent",
                    "--llm-base-url", "http://x/v1",
                    "--llm-model", "deepseek-chat", "--llm-api-key", "K"])
     assert rc == 0
@@ -113,7 +114,7 @@ def test_cli_structure_headings_reads_llm_config_from_env(monkeypatch, tmp_path)
     monkeypatch.setenv("MAKEITDOWN_LLM_API_KEY", "ENVK")
 
     src = tmp_path / "in"; src.mkdir()
-    cli.main([str(src), "--ocr-engine", "local", "--structure-headings"])
+    cli.main([str(src), "--ocr-engine", "local", "--structure-headings", "--cloud-consent"])
     assert captured["structurer"].model == "qwen"
 
 
@@ -136,6 +137,22 @@ def test_cli_structure_headings_fail_fast_without_config(monkeypatch, capsys, tm
     assert "structure-headings" in capsys.readouterr().err
 
 
+def test_cli_structure_headings_requires_external_processing_consent(monkeypatch, capsys, tmp_path):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        cli, "convert_tree",
+        lambda *a, **kw: called.update(n=called["n"] + 1) or _report(),
+    )
+    src = tmp_path / "in"; src.mkdir()
+    rc = cli.main([
+        str(src), "--ocr-engine", "local", "--structure-headings",
+        "--llm-base-url", "https://llm.example/v1",
+        "--llm-model", "model", "--llm-api-key", "K",
+    ])
+    assert rc == 2 and called["n"] == 0
+    assert "上传" in capsys.readouterr().err
+
+
 def test_cli_default_passes_no_structurer(monkeypatch, tmp_path):
     captured = {}
     monkeypatch.setattr(cli, "convert_tree",
@@ -154,8 +171,20 @@ def test_cli_summary_includes_structured_when_enabled(monkeypatch, capsys, tmp_p
     monkeypatch.setenv("MAKEITDOWN_LLM_MODEL", "qwen")
     monkeypatch.setenv("MAKEITDOWN_LLM_API_KEY", "ENVK")
     src = tmp_path / "in"; src.mkdir()
-    cli.main([str(src), "--ocr-engine", "local", "--structure-headings"])
+    cli.main([str(src), "--ocr-engine", "local", "--structure-headings", "--cloud-consent"])
     assert "structured=4" in capsys.readouterr().out
+
+
+def test_cli_rejects_output_inside_input(monkeypatch, capsys, tmp_path):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        cli, "convert_tree",
+        lambda *a, **kw: called.update(n=called["n"] + 1) or _report(),
+    )
+    src = tmp_path / "in"; src.mkdir()
+    rc = cli.main([str(src), "--ocr-engine", "local", "-o", str(src / "out")])
+    assert rc == 2 and called["n"] == 0
+    assert "输出目录不能位于输入目录内部" in capsys.readouterr().err
 
 
 def test_cross_check_flag_parses():

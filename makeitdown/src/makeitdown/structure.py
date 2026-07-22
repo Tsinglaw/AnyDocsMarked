@@ -101,6 +101,7 @@ class HeadingStructurer:
         max_heading_ratio: float = 0.35,
         request_timeout: float = 60.0,
         completion_fn=None,
+        cloud_consent: bool = False,
     ):
         self.base_url = base_url
         self.api_key = api_key
@@ -110,6 +111,7 @@ class HeadingStructurer:
         self.max_heading_ratio = max_heading_ratio
         self.request_timeout = request_timeout
         self._completion_fn = completion_fn
+        self.cloud_consent = cloud_consent
 
     def restructure(self, text: str) -> tuple[str, str | None, str | None]:
         candidates = extract_heading_candidates(text, max_len=self.max_heading_len)
@@ -170,6 +172,9 @@ class HeadingStructurer:
 
     def _default_completion(self, messages: list[dict]) -> str:
         import requests
+        from .cloud_consent import require_cloud_consent
+
+        require_cloud_consent(self.cloud_consent)
 
         url = self.base_url.rstrip("/") + "/chat/completions"
         payload = {

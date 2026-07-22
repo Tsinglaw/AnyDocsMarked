@@ -46,7 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="run a second OCR engine (MinerU) and flag disagreements "
                         "(opt-in; default off)")
     p.add_argument("--cloud-consent", action="store_true",
-                   help="consent to uploading documents to cloud OCR services")
+                   help="consent to uploading documents/text to external OCR or LLM services")
     p.add_argument("--cross-check-mode", choices=["cloud", "local", "auto"], default="cloud",
                    help="MinerU verifier mode for --ocr-cross-check (default: cloud)")
     p.add_argument("--warn-cross-check-ratio", type=float, default=qt.cross_check_disagreement_ratio,
@@ -90,8 +90,15 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
     output_dir = Path(args.output) if args.output else Path(f"{input_dir}_md")
+    input_resolved = input_dir.resolve()
+    output_resolved = output_dir.resolve()
+    if output_resolved == input_resolved or output_resolved.is_relative_to(input_resolved):
+        print("error: 输出目录不能位于输入目录内部，否则重跑时会递归转换既有输出。", file=sys.stderr)
+        return 2
     token = args.cloud_token or os.environ.get("PADDLEOCR_AISTUDIO_TOKEN")
     report_path = Path(args.report) if args.report else output_dir / "report.json"
+    from .cloud_consent import CLOUD_NOTICE, has_consent
+    consented = has_consent(args.cloud_consent)
 
     thresholds = QualityThresholds(
         min_chars=args.warn_min_chars,
@@ -119,9 +126,9 @@ def main(argv: list[str] | None = None) -> int:
             max_heading_len=args.llm_max_heading_len,
             max_input_lines=args.llm_max_lines,
             max_heading_ratio=args.llm_max_heading_ratio,
+            cloud_consent=consented,
         )
 
-    from .cloud_consent import CLOUD_NOTICE, has_consent
     mineru_token = os.environ.get("MINERU_API_TOKEN")
     # Will a cloud engine ACTUALLY run? auto prefers local when available.
     primary_is_cloud = args.ocr_engine == "cloud" or (
@@ -129,15 +136,15 @@ def main(argv: list[str] | None = None) -> int:
     verifier_is_cloud = args.ocr_cross_check and (
         args.cross_check_mode == "cloud" or (
             args.cross_check_mode == "auto" and not MinerULocal.is_available()))
-    cloud_will_run = primary_is_cloud or verifier_is_cloud
-    consented = has_consent(args.cloud_consent)
+    llm_will_run = args.structure_headings
+    cloud_will_run = primary_is_cloud or verifier_is_cloud or llm_will_run
     if cloud_will_run and not consented:
         print(CLOUD_NOTICE, file=sys.stderr)
-        if primary_is_cloud:
-            return 2  # primary needs cloud → cannot proceed without consent
+        if primary_is_cloud or llm_will_run:
+            return 2  # primary/LLM needs external processing → cannot proceed without consent
         # verifier-only cloud without consent: the verifier will skip cleanly (no upload); proceed
     elif cloud_will_run and consented:
-        print("使用云端 OCR：文档将上传至云端服务。", file=sys.stderr)
+        print("使用外部处理服务：文档或其文本将上传至配置的服务。", file=sys.stderr)
 
     report = convert_tree(
         input_dir, output_dir,

@@ -16,6 +16,8 @@ def build_frontmatter(
     pages: int | None,
     converted_at: str,
     warnings: list[str] | None = None,
+    source_sha256: str | None = None,
+    content_sha256: str | None = None,
 ) -> str:
     """Return a YAML frontmatter block ending in a newline.
 
@@ -24,12 +26,18 @@ def build_frontmatter(
     knowledge base. Clean files look exactly as before (no extra keys).
     """
     lines = ["---"]
+    if source_sha256 and content_sha256:
+        lines.append("provenance_version: 1")
     lines.append(f"source: {_yaml_value(source)}")
     lines.append(f"source_type: {_yaml_value(source_type)}")
     lines.append(f"engine: {_yaml_value(engine)}")
     if pages is not None:
         lines.append(f"pages: {pages}")
     lines.append(f"converted_at: {_yaml_value(converted_at)}")
+    if source_sha256:
+        lines.append(f"source_sha256: {source_sha256}")
+    if content_sha256:
+        lines.append(f"content_sha256: {content_sha256}")
     if warnings:
         lines.append("quality: suspect")
         lines.append("warnings:")

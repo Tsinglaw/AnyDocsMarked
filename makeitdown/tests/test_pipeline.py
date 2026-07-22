@@ -1,4 +1,6 @@
 import json
+import hashlib
+import os
 import makeitdown.pipeline as pl
 import makeitdown.pipeline as pipeline_mod
 from makeitdown.models import ConversionResult, LegacyConversionUnavailable
@@ -39,11 +41,63 @@ def test_convert_tree_writes_mirrored_md_and_report(tmp_path, monkeypatch):
     b_md = (out / "sub" / "b.md").read_text(encoding="utf-8")
     assert a_md.startswith("---\n") and "# native" in a_md
     assert "engine: markitdown" in a_md
+    assert f"source_sha256: {hashlib.sha256(b'x').hexdigest()}" in a_md
+    body = "# native\n\n" + "正常的文档内容" * 5
+    assert f"content_sha256: {hashlib.sha256(body.encode('utf-8')).hexdigest()}" in a_md
     assert "# ocr" in b_md
     assert report["succeeded"] == 2
     assert report["skipped_unsupported"] == 1
     saved = json.loads((out / "report.json").read_text(encoding="utf-8"))
     assert saved["succeeded"] == 2
+
+
+def test_hash_aware_skip_detects_changed_source_even_with_old_mtime(tmp_path):
+    src = tmp_path / "source.txt"
+    src.write_text("old", encoding="utf-8")
+    source_hash = hashlib.sha256(src.read_bytes()).hexdigest()
+    md = tmp_path / "source.md"
+    md.write_text(f"---\nsource_sha256: {source_hash}\n---\n\nold", encoding="utf-8")
+    newer = md.stat().st_mtime + 10
+    os.utime(md, (newer, newer))
+    src.write_text("changed", encoding="utf-8")
+    older = newer - 5
+    os.utime(src, (older, older))
+    assert pl._is_up_to_date(src, md) is False
+
+
+def test_convert_tree_rejects_output_inside_input(tmp_path):
+    src = tmp_path / "in"
+    src.mkdir()
+    try:
+        pl.convert_tree(
+            src, src / "out", ocr_engine="local", ocr_model=None,
+            cloud_token=None, workers=1, skip_existing=False,
+            text_threshold=50, report_path=src / "out" / "report.json",
+        )
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "output_dir" in str(exc)
+
+
+def test_source_change_during_conversion_fails_instead_of_binding_wrong_hash(tmp_path, monkeypatch):
+    src_dir = tmp_path / "in"; src_dir.mkdir()
+    source = src_dir / "a.txt"; source.write_text("before", encoding="utf-8")
+    out = tmp_path / "out"
+    monkeypatch.setattr(pl, "classify", lambda *a, **k: "native")
+
+    def convert_and_replace(path):
+        path.write_text("after", encoding="utf-8")
+        return ConversionResult(text="converted before replacement", engine="markitdown")
+
+    monkeypatch.setattr(pl, "convert_native", convert_and_replace)
+    report = pl.convert_tree(
+        src_dir, out, ocr_engine="local", ocr_model=None, cloud_token=None,
+        workers=1, skip_existing=False, text_threshold=50,
+        report_path=out / "report.json",
+    )
+    assert report["failed"] == 1
+    assert "source changed during conversion" in report["failures"][0]["error"]
+    assert not (out / "a.md").exists()
 
 
 def test_unsupported_extension_lands_in_skipped_list_not_just_count(tmp_path):

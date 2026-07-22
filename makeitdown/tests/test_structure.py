@@ -1,3 +1,6 @@
+import pytest
+
+from makeitdown.cloud_consent import CloudConsentRequired
 from makeitdown.structure import (
     HeadingStructurer,
     apply_heading_levels,
@@ -7,6 +10,12 @@ from makeitdown.structure import (
 
 def _structurer(fake, **kw):
     return HeadingStructurer("http://x", "k", "deepseek-chat", completion_fn=fake, **kw)
+
+
+def test_network_completion_requires_explicit_consent():
+    s = HeadingStructurer("https://llm.example/v1", "k", "model")
+    with pytest.raises(CloudConsentRequired):
+        s._default_completion([])
 
 
 def test_extract_skips_blank_long_and_table_lines():

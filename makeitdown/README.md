@@ -2,8 +2,8 @@
 
 把一整个文件夹的文档**批量转换为高保真 Markdown**，作为 LLM 知识库的原材料。中国大陆可用，无需海外服务。
 
-> 🤖 **完全不懂技术？** 去 [Releases](https://github.com/code-lawyer/makeitdown/releases) 下载
-> `makeitdown-agent.zip`，解压后把整个文件夹（或里面的 `SKILL.md`）发给你的 AI 助手，
+> 🤖 **完全不懂技术？** 去 [AnyDocsMarked Releases](https://github.com/Tsinglaw/AnyDocsMarked/releases) 下载
+> 发布包，解压后把整个文件夹（或里面的 `SKILL.md`）交给你的 AI 助手，
 > 说一句"帮我用 makeitdown 把这个文件夹的文档转成 markdown"即可——助手会自动安装并运行。
 > 详见包内 `给你的AI助手.md`。（没有 Release 时，点 `Code → Download ZIP` 把整个仓库发给助手也行。）
 
@@ -16,7 +16,7 @@
   - **扫描件 / 图片型 PDF / 图片**（png/jpg/bmp/tiff…）→ PaddleOCR
   - **老式 .doc / .wps** → 先嗅探内核：实为 .docx 的直接转；真二进制用已装的 Word/WPS 或
     LibreOffice（见下文「老式 .doc / .wps」）
-- 输出**镜像输入目录结构**的 `.md`，每个文件带 YAML frontmatter（`source` / `source_type` / `engine` / `pages` / `converted_at`），便于溯源与 Obsidian Dataview。
+- 输出**镜像输入目录结构**的 `.md`，每个文件带 YAML frontmatter（来源、引擎、原件 SHA-256、正文 SHA-256 等），便于溯源与篡改检测。
 - 单文件出错不中断整批，结果汇总到 `report.json`。
 
 PDF 是否走 OCR：用 PyMuPDF 检测文字层——每页平均可提取字符数低于阈值（默认 50）即判为扫描件。
@@ -42,23 +42,23 @@ pip install uv -i https://mirrors.aliyun.com/pypi/simple
 ```bash
 # 本地版（离线、免费、私密；体积大）
 uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
-  "makeitdown[local] @ git+https://gitee.com/code-lawyer/makeitdown.git"
+  "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
 
 # 云端版（轻快；需联网 + token）
 uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
-  "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git"
+  "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
 ```
 
 装完执行 `makeitdown --help` 验证。命令找不到时运行 `uv tool update-shell` 后开新终端。
 
 说明：
-- 代码走 **Gitee 镜像**、依赖走**阿里云 PyPI 镜像**，避开 GitHub/PyPI 在国内的卡顿；PaddleOCR 模型由百度托管，国内下载很快。
+- 依赖可走**阿里云 PyPI 镜像**；源码以 AnyDocsMarked monorepo 的 `makeitdown/` 子目录为权威来源。
 - uv 自动下载 Python 是从 GitHub 拉的，国内可能慢——所以请先备好 Python 3.11；若 uv 仍有问题，用纯 pip 后备：
   ```bash
-  pip install "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git" \
+  pip install "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown" \
     -i https://mirrors.aliyun.com/pypi/simple
   ```
-- **海外用户**：去掉 `--index`/`-i` 参数，并把 `gitee.com` 换成 `github.com`。若阿里云镜像本身连不上（罕见），同样去掉 `--index`/`-i` 落回默认 pypi.org。
+- **海外用户**：去掉 `--index`/`-i` 参数即可。若阿里云镜像本身连不上，同样去掉镜像参数落回默认 pypi.org。
 
 ## 使用
 
@@ -66,7 +66,7 @@ uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
 makeitdown <输入目录> -o <输出目录>
 ```
 
-输出目录默认为 `<输入目录>_md`；`report.json` 默认写入输出目录。
+输出目录默认为 `<输入目录>_md`；`report.json` 默认写入输出目录。输出目录不得位于输入目录内部，避免重跑时递归转换旧输出。
 
 转换过程逐文件把进度打到 stderr（`[k/N] ✓ 文件路径 (耗时)`，✗ 为失败并附错误）。批量大或走云端 OCR 时建议后台运行并 tail 日志；**完成以 `report.json` 为准**。
 
@@ -85,7 +85,7 @@ makeitdown 默认走**云端 OCR**（开箱即用、无需重型安装），但*
 |---|---|
 | `-o, --output DIR` | 输出目录（默认 `<输入>_md`） |
 | `--ocr-engine {local,cloud,auto}` | OCR 后端（默认 `cloud`） |
-| `--cloud-consent` | 显式同意上传文档到云端（或环境变量 `MAKEITDOWN_CLOUD_CONSENT=1`；必需用 `--ocr-engine cloud`） |
+| `--cloud-consent` | 显式同意把文档/文本发送到外部 OCR 或标题 LLM（或环境变量 `MAKEITDOWN_CLOUD_CONSENT=1`） |
 | `--ocr-model NAME` | 本地模型（默认 `PP-StructureV3`，可选 `PaddleOCR-VL`） |
 | `--cloud-token TOKEN` | PaddleOCR 云端 token（默认读环境变量 `PADDLEOCR_AISTUDIO_TOKEN`） |
 | `--ocr-cross-check` | 启用双 OCR 互校（Paddle + MinerU 比对，需可选依赖） |
@@ -130,14 +130,14 @@ makeitdown 默认走**云端 OCR**（开箱即用、无需重型安装），但*
 非层级材料（聊天记录、清单、表单）会被判为"无标题"并保持扁平；标题占比异常高时整份回退
 扁平并标记。任何失败都回退原文、绝不丢转换结果。
 
-需联网 + 一个 OpenAI 兼容端点（指向 DeepSeek / 通义 / Moonshot / 智谱等国内服务即可）：
+该功能会把候选标题行发送给配置的 OpenAI 兼容端点，因此同样必须显式加 `--cloud-consent`：
 
 ```bash
 # PowerShell；key 绝不硬编码，从环境变量读
 $env:MAKEITDOWN_LLM_BASE_URL = "https://api.deepseek.com/v1"
 $env:MAKEITDOWN_LLM_MODEL    = "deepseek-chat"
 $env:MAKEITDOWN_LLM_API_KEY  = "你的key"
-makeitdown docs --ocr-engine local --structure-headings
+makeitdown docs --ocr-engine local --structure-headings --cloud-consent
 ```
 
 | 选项 | 说明 | 默认 |
@@ -163,7 +163,7 @@ makeitdown docs --ocr-engine local --structure-headings
    转换。需装可选依赖 `makeitdown[com]`（只装 COM 桥，不装 Office）：
    ```bash
    uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
-     "makeitdown[com] @ git+https://gitee.com/code-lawyer/makeitdown.git"
+     "makeitdown[com] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
    ```
 3. **LibreOffice（可选）**：若 `soffice` 已在 PATH，则用它转换（跨平台）。makeitdown
    **不会自动安装 LibreOffice**；需要的话请自行安装（国内走清华/中科大镜像）。
@@ -181,6 +181,9 @@ source_type: pdf
 engine: cloud:paddleocr-vl-1.6
 pages: 12
 converted_at: 2026-06-15T10:30:00
+provenance_version: 1
+source_sha256: <原始 PDF 的 SHA-256>
+content_sha256: <下方 Markdown 正文的 SHA-256>
 ---
 
 # 采购框架协议
@@ -194,8 +197,8 @@ converted_at: 2026-06-15T10:30:00
 ## 开发（从源码）
 
 ```bash
-git clone https://gitee.com/code-lawyer/makeitdown.git   # 海外用 github.com
-cd makeitdown
+git clone https://github.com/Tsinglaw/AnyDocsMarked.git
+cd AnyDocsMarked/makeitdown
 python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev]" -i https://mirrors.aliyun.com/pypi/simple
 .venv/Scripts/python -m pytest -q

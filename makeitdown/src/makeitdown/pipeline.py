@@ -1,4 +1,7 @@
 import json
+import hashlib
+import os
+import tempfile
 import re
 import sys
 import time
@@ -41,12 +44,37 @@ def _iter_files(input_dir: Path) -> list[Path]:
 
 
 def _is_up_to_date(src: Path, md: Path) -> bool:
-    # mtime-based, the same tradeoff make/ninja accept: cheap (stat-only, no
-    # reads) but unreliable after git checkout / directory copies reset mtimes.
-    # Worst case is a wasted re-convert or a stale skip the user clears by
-    # re-running without --skip-existing; content hashing would cost a full
-    # read of every source on every run.
-    return md.exists() and md.stat().st_mtime >= src.stat().st_mtime
+    if not md.exists() or md.stat().st_mtime < src.stat().st_mtime:
+        return False
+    # New outputs carry a source hash, so copied/restored mtimes cannot make a
+    # changed legal document look current. Legacy outputs fall back to mtime.
+    try:
+        head = md.read_text(encoding="utf-8", errors="replace")[:4096]
+        match = re.search(r"(?m)^source_sha256:\s*([0-9a-f]{64})\s*$", head)
+        return match.group(1) == _sha256_file(src) if match else True
+    except OSError:
+        return False
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 _IMG_HTML_RE = re.compile(r"<img\b[^>]*?>", re.IGNORECASE)
@@ -109,7 +137,7 @@ def _is_safe_asset_rel(rel: str) -> bool:
     return not p.is_absolute() and ".." not in p.parts
 
 
-def _write_output(out_md: Path, result, source_rel: str, source_type: str,
+def _write_output(out_md: Path, result, source_sha256: str, source_rel: str, source_type: str,
                   warnings: list[str] | None = None):
     out_md.parent.mkdir(parents=True, exist_ok=True)
     fm = build_frontmatter(
@@ -119,8 +147,10 @@ def _write_output(out_md: Path, result, source_rel: str, source_type: str,
         pages=result.pages,
         converted_at=datetime.now().isoformat(timespec="seconds"),
         warnings=warnings,
+        source_sha256=source_sha256,
+        content_sha256=hashlib.sha256(result.text.encode("utf-8")).hexdigest(),
     )
-    out_md.write_text(prepend_frontmatter(result.text, fm), encoding="utf-8")
+    _atomic_write_text(out_md, prepend_frontmatter(result.text, fm))
     for rel, data in result.assets.items():
         if not _is_safe_asset_rel(rel):
             continue  # skip path-escaping assets rather than write outside output
@@ -153,6 +183,10 @@ def convert_tree(
 ) -> dict:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
+    input_resolved = input_dir.resolve()
+    output_resolved = output_dir.resolve()
+    if output_resolved == input_resolved or output_resolved.is_relative_to(input_resolved):
+        raise ValueError("output_dir must not be inside input_dir")
     dispatcher = OCRDispatcher(
         engine=ocr_engine, model=ocr_model, token=cloud_token,
         cross_check=cross_check, cross_check_ratio=cross_check_ratio,
@@ -217,6 +251,9 @@ def convert_tree(
             return ("skipped_unsupported", rel,
                     f"unsupported file type ({src.suffix or 'no extension'})", False, 0)
         try:
+            # Hash both sides of conversion. If a synced folder/scanner replaces
+            # the source mid-run, never bind the output to an ambiguous snapshot.
+            source_hash_before = _sha256_file(src)
             source_type = src.suffix.lstrip(".")
             struct_reasons: list[str] = []
             structured_ok = False
@@ -245,7 +282,9 @@ def convert_tree(
                 result.assets = {}
             cc_reasons = result.cross_check_reasons or []
             reasons = struct_reasons + cc_reasons + _quality_reasons(result, source_type)
-            _write_output(out_md, result, rel.as_posix(), source_type,
+            if _sha256_file(src) != source_hash_before:
+                raise RuntimeError("source changed during conversion; retry this file")
+            _write_output(out_md, result, source_hash_before, rel.as_posix(), source_type,
                           warnings=reasons)
             if reasons:
                 return ("warned", rel, reasons, structured_ok, n_omitted)
@@ -283,5 +322,5 @@ def convert_tree(
                 report["skipped"].append({"file": rel.as_posix(), "reason": detail})
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_text(report_path, json.dumps(report, ensure_ascii=False, indent=2))
     return report

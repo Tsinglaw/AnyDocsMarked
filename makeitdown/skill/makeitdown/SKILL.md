@@ -39,9 +39,9 @@ Tell the user honestly: **Local is usually the most hassle-free for a non-techni
 
 ### China network note (important — the target users are in mainland China)
 
-GitHub and PyPI are slow/flaky from China; build the install around domestic mirrors:
+GitHub and PyPI can be slow/flaky from China; use a domestic dependency mirror while keeping the monorepo as the authoritative code source:
 
-- **Code** is installed from a **Gitee mirror**, not GitHub: `git+https://gitee.com/code-lawyer/makeitdown.git`. (Replace `code-lawyer` with the actual Gitee username if it differs.)
+- **Code** comes from `git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown` or the downloaded release bundle. Do not invent an unverified mirror URL.
 - **Python dependencies** are pulled from the **Aliyun PyPI mirror**: `https://mirrors.aliyun.com/pypi/simple`. (Tsinghua's academic mirror also works from mainland China but has been flaky/unreachable from some cloud/overseas agent environments — Aliyun's commercial CDN is more consistently reachable. If Aliyun also fails, drop `--index`/`-i` entirely and let pip/uv fall back to the default pypi.org.)
 - **PaddleOCR models** (Local edition) download from Baidu's domestic servers — these are fast in China, no mirror needed.
 - **uv's own auto-download of Python comes from GitHub** and may stall in China. So prefer an already-installed Python 3.11; only fall back to uv-managed Python if the machine has none.
@@ -67,29 +67,29 @@ pip install ".[local]" -i https://mirrors.aliyun.com/pypi/simple
 pip install "." -i https://mirrors.aliyun.com/pypi/simple
 ```
 
-**Otherwise, install from the remote** (Gitee source + Aliyun mirror). Run **one** of these:
+**Otherwise, install from the remote** (authoritative monorepo + Aliyun dependency mirror). Run **one** of these:
 
 - **本地版 (Local):**
   ```bash
-  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown[local] @ git+https://gitee.com/code-lawyer/makeitdown.git"
+  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
   ```
   This pulls PaddleOCR + PaddlePaddle (a large download) — tell the user it may take several minutes. PaddleOCR models download on first conversion (from Baidu, fast in China).
 
 - **云端版 (Cloud):**
   ```bash
-  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git"
+  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
   ```
 
 If uv gives trouble, the plain-pip fallback (needs an existing Python 3.11) works the same way:
 ```bash
-pip install "makeitdown @ git+https://gitee.com/code-lawyer/makeitdown.git" -i https://mirrors.aliyun.com/pypi/simple
+pip install "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown" -i https://mirrors.aliyun.com/pypi/simple
 ```
 
 If the mirror itself is unreachable (e.g. some cloud/overseas agent sandboxes can't reach it), drop `--index`/`-i` and let pip/uv fall back to the default pypi.org.
 
 Confirm it worked: `makeitdown --help`. If the command isn't on PATH yet, run `uv tool update-shell` (then open a new shell) or invoke it via `uv tool run --from makeitdown makeitdown ...`.
 
-> Outside mainland China: drop `--index ...`/`-i ...` and use the GitHub URL `git+https://github.com/code-lawyer/makeitdown.git`.
+> Outside mainland China: drop `--index ...`/`-i ...`; the source URL stays the same.
 
 ### Step 4 — Cloud edition only: set the token
 
@@ -109,7 +109,8 @@ makeitdown <input_dir> -o <output_dir>
 ```
 
 Output mirrors the input directory structure; each `.md` carries YAML frontmatter
-(`source`, `source_type`, `engine`, `pages`, `converted_at`). A `report.json` lists
+(`provenance_version: 1`, `source`, `source_type`, `engine`, `pages`, `converted_at`, `source_sha256`,
+`content_sha256`). A `report.json` lists
 succeeded/failed/skipped files. A single broken file never aborts the batch.
 
 ## OCR backend
@@ -122,7 +123,7 @@ token comes from env `PADDLEOCR_AISTUDIO_TOKEN` (or `--cloud-token`).
 
 ## Common options
 
-- `--skip-existing` — incremental: skip files whose `.md` is newer than the source.
+- `--skip-existing` — incremental: skip only when mtime and the recorded source SHA-256 agree.
 - `--workers N` — concurrency (native conversions run in parallel; local OCR is
   serialized internally for thread-safety, so this mainly speeds up native files).
 - `--text-threshold N` — avg chars/page below which a PDF is treated as scanned.
@@ -156,13 +157,15 @@ rebuilds heading levels **for OCR-routed files only**, using an LLM that returns
 *only* a line→level map — body text is copied byte-for-byte and can never be
 altered (safe for amounts/dates). Off by default; needs an OpenAI-compatible
 endpoint (point it at a domestic provider: DeepSeek / Qwen / Moonshot / Zhipu).
+Candidate text leaves the machine, so this path also requires explicit
+`--cloud-consent` (or `MAKEITDOWN_CLOUD_CONSENT=1`).
 
 ```bash
 # prefer env vars; a key on the command line lands in shell history
 export MAKEITDOWN_LLM_BASE_URL="https://api.deepseek.com/v1"
 export MAKEITDOWN_LLM_MODEL="deepseek-chat"
 export MAKEITDOWN_LLM_API_KEY="<key>"
-makeitdown <input_dir> --ocr-engine local --structure-headings
+makeitdown <input_dir> --ocr-engine local --structure-headings --cloud-consent
 ```
 
 Successfully structured files get an engine suffix (`...+llm-heads:<model>`) and
@@ -213,7 +216,7 @@ This `skill/makeitdown/` directory *is* the package. Copy it into the target
 agent's skills location (e.g. an agent's `.claude/skills/makeitdown/` or a plugin's
 `skills/` dir). The skill drives installation of the `makeitdown` CLI itself on
 first use (see First run). The CLI and the skill are distributed separately: the
-PyPI/Gitee package ships the CLI; this folder ships the agent instructions.
+The installed package ships the CLI; this folder ships the agent instructions.
 
 ## Legacy .doc / .wps files (install transparency — read before acting)
 

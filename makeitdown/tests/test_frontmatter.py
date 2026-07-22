@@ -64,6 +64,25 @@ def test_build_frontmatter_empty_warnings_treated_as_clean():
     assert "quality:" not in fm
 
 
+def test_build_frontmatter_includes_provenance_hashes():
+    fm = build_frontmatter(
+        source="a.pdf", source_type="pdf", engine="markitdown",
+        pages=1, converted_at="2026-06-15T10:30:00",
+        source_sha256="a" * 64, content_sha256="b" * 64,
+    )
+    assert f"source_sha256: {'a' * 64}" in fm
+    assert f"content_sha256: {'b' * 64}" in fm
+
+
+def test_build_frontmatter_declares_provenance_version():
+    fm = build_frontmatter(
+        source="a.pdf", source_type="pdf", engine="markitdown",
+        pages=1, converted_at="2026-06-15T10:30:00",
+        source_sha256="a" * 64, content_sha256="b" * 64,
+    )
+    assert "provenance_version: 1\n" in fm
+
+
 def test_prepend_frontmatter():
     out = prepend_frontmatter("# Body", "---\nx: 1\n---\n")
     assert out == "---\nx: 1\n---\n\n# Body"
