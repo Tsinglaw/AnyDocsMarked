@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 1.7.1 - 2026-07-22
+
+### Fixed
+
+- makeitdown 的 `requires-python` 去掉过时的 `<3.13` 上限（paddleocr/paddlepaddle 早已支持 3.13+）；安装器与文档不再把客户已装的更高版本 Python 强行降级到 3.12。
+
 ## 1.7.0 - 2026-07-21
 
 ### Security / trust boundaries
