@@ -245,8 +245,8 @@ makeitdown 与 rag-retriever（装完可 `python install.py --check-offline` 自
 两个可安装包与一个无需安装的 skill：
 
 ```bash
-uv tool install --python 3.12 "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
-uv tool install --python 3.12 "rag-retriever @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=rag-retriever"
+uv tool install "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
+uv tool install "rag-retriever @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=rag-retriever"
 ```
 
 lawiki 是 skill、无需安装（加载 `lawiki/skill/lawiki` 即可）。

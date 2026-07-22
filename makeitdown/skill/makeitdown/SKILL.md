@@ -44,11 +44,11 @@ GitHub and PyPI can be slow/flaky from China; use a domestic dependency mirror w
 - **Code** comes from `git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown` or the downloaded release bundle. Do not invent an unverified mirror URL.
 - **Python dependencies** are pulled from the **Aliyun PyPI mirror**: `https://mirrors.aliyun.com/pypi/simple`. (Tsinghua's academic mirror also works from mainland China but has been flaky/unreachable from some cloud/overseas agent environments — Aliyun's commercial CDN is more consistently reachable. If Aliyun also fails, drop `--index`/`-i` entirely and let pip/uv fall back to the default pypi.org.)
 - **PaddleOCR models** (Local edition) download from Baidu's domestic servers — these are fast in China, no mirror needed.
-- **uv's own auto-download of Python comes from GitHub** and may stall in China. So prefer an already-installed Python 3.11; only fall back to uv-managed Python if the machine has none.
+- **uv's own auto-download of Python comes from GitHub** and may stall in China. So prefer an already-installed Python 3.11+; only fall back to uv-managed Python if the machine has none.
 
-### Step 2 — Make sure Python 3.11 and uv are present
+### Step 2 — Make sure Python 3.11+ and uv are present
 
-1. **Python 3.11** (the package needs ≥3.11, <3.13). Check `python --version`. If it's not 3.11/3.12, have the user install Python 3.11 via a domestic-friendly route (e.g. Miniconda from a domestic mirror, or python.org). Relying on an existing interpreter avoids uv fetching Python from GitHub.
+1. **Python 3.11+** (the package needs ≥3.11, no upper bound). Check `python --version`. If it's below 3.11, have the user install a current Python via a domestic-friendly route (e.g. Miniconda from a domestic mirror, or python.org). Relying on an existing interpreter avoids uv fetching Python from GitHub — whatever version the user already has (3.11, 3.12, 3.13, ...) works, no need to install a different one.
 2. **uv** — install it from the Aliyun mirror (avoids astral.sh):
    ```bash
    pip install uv -i https://mirrors.aliyun.com/pypi/simple
@@ -71,16 +71,16 @@ pip install "." -i https://mirrors.aliyun.com/pypi/simple
 
 - **本地版 (Local):**
   ```bash
-  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
+  uv tool install --index https://mirrors.aliyun.com/pypi/simple "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
   ```
   This pulls PaddleOCR + PaddlePaddle (a large download) — tell the user it may take several minutes. PaddleOCR models download on first conversion (from Baidu, fast in China).
 
 - **云端版 (Cloud):**
   ```bash
-  uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
+  uv tool install --index https://mirrors.aliyun.com/pypi/simple "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
   ```
 
-If uv gives trouble, the plain-pip fallback (needs an existing Python 3.11) works the same way:
+If uv gives trouble, the plain-pip fallback (needs an existing Python 3.11+) works the same way:
 ```bash
 pip install "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown" -i https://mirrors.aliyun.com/pypi/simple
 ```

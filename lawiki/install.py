@@ -83,12 +83,14 @@ def _uv_subprocess_env() -> dict[str, str]:
 
 
 def _uv_install(spec: str, dry: bool) -> bool:
-    """uv tool install <spec>（钉 Python 3.12、走国内镜像加速）。返回是否成功。
+    """uv tool install <spec>（走国内镜像加速）。返回是否成功。
 
-    --python 3.12 同时满足各包约束：makeitdown(>=3.11,<3.13)、rag-retriever(>=3.10)、
-    lawiki lint(>=3.11)；不钉则在 3.13+ 默认机器上 makeitdown 会装失败。
+    不再钉死某个 Python 版本：makeitdown(>=3.11)、rag-retriever(>=3.10)、
+    lawiki lint(>=3.11) 都已放开上限（paddleocr/paddlepaddle 早已支持 3.13+），
+    交给 uv 按各包自身的 requires-python 去选/装解释器，客户已有的新版 Python
+    不必再为了满足过时的上限被迫降级。
     """
-    cmd = ["uv", "tool", "install", "--python", "3.12"]
+    cmd = ["uv", "tool", "install"]
     idx = _pypi_index()
     if idx:
         cmd += ["--index", idx]

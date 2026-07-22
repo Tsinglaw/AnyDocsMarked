@@ -23,7 +23,7 @@ PDF 是否走 OCR：用 PyMuPDF 检测文字层——每页平均可提取字符
 
 ## 安装（国内网络优化）
 
-需要 **Python 3.11 或 3.12**；用本地版的话建议 **3.11**（PaddlePaddle 对 3.11 支持最稳）。先有 Python 再装 uv：
+需要 **Python 3.11 及以上**（无上限，PaddlePaddle/PaddleOCR 已支持最新版）。先有 Python 再装 uv：
 
 ```bash
 pip install uv -i https://mirrors.aliyun.com/pypi/simple
@@ -41,11 +41,11 @@ pip install uv -i https://mirrors.aliyun.com/pypi/simple
 
 ```bash
 # 本地版（离线、免费、私密；体积大）
-uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
+uv tool install --index https://mirrors.aliyun.com/pypi/simple \
   "makeitdown[local] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
 
 # 云端版（轻快；需联网 + token）
-uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
+uv tool install --index https://mirrors.aliyun.com/pypi/simple \
   "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
 ```
 
@@ -53,7 +53,7 @@ uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
 
 说明：
 - 依赖可走**阿里云 PyPI 镜像**；源码以 AnyDocsMarked monorepo 的 `makeitdown/` 子目录为权威来源。
-- uv 自动下载 Python 是从 GitHub 拉的，国内可能慢——所以请先备好 Python 3.11；若 uv 仍有问题，用纯 pip 后备：
+- uv 自动下载 Python 是从 GitHub 拉的，国内可能慢——所以请先备好 Python 3.11+（已装的话 uv 会直接复用，无需重新下载）；若 uv 仍有问题，用纯 pip 后备：
   ```bash
   pip install "makeitdown @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown" \
     -i https://mirrors.aliyun.com/pypi/simple
@@ -162,7 +162,7 @@ makeitdown docs --ocr-engine local --structure-headings --cloud-consent
 2. **已装的 Word / WPS（Windows）**：真二进制文件，调用本机**已安装**的 Word 或金山 WPS
    转换。需装可选依赖 `makeitdown[com]`（只装 COM 桥，不装 Office）：
    ```bash
-   uv tool install --python 3.11 --index https://mirrors.aliyun.com/pypi/simple \
+   uv tool install --index https://mirrors.aliyun.com/pypi/simple \
      "makeitdown[com] @ git+https://github.com/Tsinglaw/AnyDocsMarked.git#subdirectory=makeitdown"
    ```
 3. **LibreOffice（可选）**：若 `soffice` 已在 PATH，则用它转换（跨平台）。makeitdown

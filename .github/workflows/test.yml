@@ -38,8 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      # 3.12 satisfies requires-python (>=3.11,<3.13). The `dev` extra pulls
-      # pytest; `local` (paddle) is intentionally omitted — OCR tests mock it.
+      # Pinned to 3.12 for a reproducible CI matrix (makeitdown itself only
+      # requires >=3.11, no upper bound). The `dev` extra pulls pytest;
+      # `local` (paddle) is intentionally omitted — OCR tests mock it.
       - run: uv run --python 3.12 --extra dev --with pytest-cov python -m pytest tests -q ${{ matrix.os == 'ubuntu-latest' && '--cov=makeitdown --cov-config=../.coveragerc --cov-report=term-missing --cov-fail-under=80' || '' }}
         working-directory: makeitdown
 
